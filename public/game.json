@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "shardwake",
+  "name": "碎晶航跡 SHARDWAKE",
+  "version": "0.1.0",
+  "description": "在崩解的軌道巨構碎片間高速穿梭、奪取原型武器的單人第一人稱科幻刷寶射擊遊戲。",
+  "author": "SHARDWAKE 開發團隊",
+  "entry": "index.html",
+  "cover": "cover.png",
+  "tags": ["射擊", "第一人稱", "科幻", "刷寶"],
+  "instructions": "點擊畫面開始並鎖定滑鼠。WASD 移動、滑鼠瞄準、左鍵射擊、Space 跳躍、Shift Dash、C 滑鏟、F 抓鉤、Esc 暫停。",
+  "devices": ["desktop"]
+}

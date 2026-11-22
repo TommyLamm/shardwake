@@ -1,0 +1,35 @@
+{
+  "name": "shardwake",
+  "version": "0.1.0",
+  "private": true,
+  "description": "碎晶航跡 SHARDWAKE：單人第一人稱科幻刷寶射擊遊戲（Playroom 遊戲 ID shardwake）。",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check:dist": "node scripts/check-dist.mjs",
+    "sim": "node scripts/platform-sim.mjs",
+    "cover": "node scripts/make-cover.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "@tweakpane/plugin-essentials": "0.2.1",
+    "postprocessing": "6.39.6",
+    "three": "0.187.0",
+    "tweakpane": "4.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/three": "0.187.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
+  }
+}

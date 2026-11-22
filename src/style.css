@@ -1,0 +1,49 @@
+/* 不載入外部 CDN 或網路字型；只使用系統字型。 */
+:root {
+  color-scheme: dark;
+  --sw-bg: #05080d;
+  --sw-cyan: #39e6ff;
+  --sw-text: #cfe8ee;
+  --sw-font-mono: ui-monospace, 'Cascadia Mono', Consolas, 'Noto Sans Mono', monospace;
+  --sw-font-ui: system-ui, 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sw-bg);
+  color: var(--sw-text);
+  font-family: var(--sw-font-ui);
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.sw-fps {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  font: 12px/1.4 var(--sw-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--sw-cyan);
+  background: rgb(5 8 13 / 70%);
+  border: 1px solid rgb(57 230 255 / 40%);
+  pointer-events: none;
+  user-select: none;
+  white-space: pre;
+}
