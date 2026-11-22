@@ -1,2 +1,3 @@
-// debug 模組（M1-01 佔位，內容從後續計畫開始實作）。
-export {};
+// debug：調參面板與 FPS 顯示（M1-02）。
+export * from '@/debug/DebugPanel';
+export * from '@/debug/Stats';

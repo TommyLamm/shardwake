@@ -47,3 +47,40 @@ body {
   user-select: none;
   white-space: pre;
 }
+
+.sw-fps[hidden],
+.sw-hint[hidden],
+.sw-debug[hidden] {
+  display: none;
+}
+
+/* 暫時的模式提示（M1-03／M1-14 取代）。 */
+.sw-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  font: 14px/1.5 var(--sw-font-ui);
+  text-align: center;
+  white-space: pre-line;
+  color: var(--sw-text);
+  background: rgb(5 8 13 / 70%);
+  border: 1px solid rgb(57 230 255 / 40%);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 調參面板容器（Tweakpane 動態載入後掛在這裡）。 */
+.sw-debug {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
+  width: 320px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  font: 12px/1.4 var(--sw-font-mono);
+  color: var(--sw-text);
+}
