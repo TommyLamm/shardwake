@@ -32,6 +32,12 @@ export interface GameEvents {
   /** iframe 取得／失去焦點。 */
   'lifecycle:focus': { focused: boolean };
 
+  // ── input（M1-03）────────────────────────────────────
+  /** 滑鼠鎖定狀態改變或鎖定失敗（error 有值）。raw：是否為原始輸入（unadjustedMovement）。 */
+  'input:pointerlock': { locked: boolean; raw: boolean; error?: string | undefined };
+  /** 按鍵綁定變更（已存檔）。 */
+  'input:bindings': Record<string, never>;
+
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */
   'debug:panel': { open: boolean };

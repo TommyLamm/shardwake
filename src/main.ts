@@ -1,6 +1,6 @@
-// 進入點：建立核心執行框架（M1-02）並掛上開機場景。
-// renderer.setAnimationLoop 每畫面呼叫 Game.frame()：固定步長模擬 → update → render。
-// 「點擊開始／點擊繼續」與 Esc 暫停是暫時的接線，M1-03（輸入）與 M1-14（選單）取代。
+// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）並掛上開機場景。
+// renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
+// 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { BOOT_SCENE_CONFIG as CFG } from '@/bootConfig';
@@ -15,6 +15,14 @@ import { GameStorage } from '@/core/Storage';
 import { Viewport } from '@/core/Viewport';
 import { DebugPanel, hasHashFlag, type ConfigSchema, type ParamSpec } from '@/debug/DebugPanel';
 import { StatsOverlay } from '@/debug/Stats';
+import { actionsInMask } from '@/input/Actions';
+import { Bindings } from '@/input/Bindings';
+import { INPUT_CONFIG } from '@/input/config';
+import { InputSystem } from '@/input/Input';
+import { LockFlow } from '@/input/LockFlow';
+import { cmPer360, type ViewAngles } from '@/input/Mouse';
+import { PointerLock } from '@/input/PointerLock';
+import { StartOverlay } from '@/ui/StartOverlay';
 import { BootScene } from '@/world/BootScene';
 import './style.css';
 
@@ -60,19 +68,14 @@ function renderSystem(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera:
   };
 }
 
-/** 暫時的模式提示（M1-03 的「點擊開始」覆蓋層、M1-14 的選單取代）。 */
-function createHint(app: HTMLElement): (mode: GameMode, persistent: boolean) => void {
-  const el = document.createElement('div');
-  el.className = 'sw-hint';
-  app.appendChild(el);
-  return (mode, persistent) => {
-    const text: Partial<Record<GameMode, string>> = {
-      title: '點擊畫面開始',
-      paused: '已暫停：點擊畫面繼續',
-    };
-    const storageNote = persistent ? '' : '\n目前無法存檔（設定只保留到關閉頁面）';
-    el.textContent = (text[mode] ?? '') + (mode === 'playing' ? '' : storageNote);
-    el.hidden = el.textContent === '';
+/** 暫時的鏡頭：每個渲染畫面直接套用滑鼠視角（不插值、不平滑；M1-05／M1-08 換成正式鏡頭）。 */
+function cameraSystem(camera: THREE.Camera, view: ViewAngles): GameSystem {
+  return {
+    name: 'camera',
+    order: SystemOrder.camera,
+    render() {
+      camera.rotation.set(view.viewPitch, view.viewYaw, 0, 'YXZ');
+    },
   };
 }
 
@@ -110,7 +113,6 @@ async function boot(): Promise<void> {
 
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
   camera.position.set(0, 1.4, 4.2);
-  camera.lookAt(0, 0.6, 0);
   const applyFov = (): void => {
     camera.fov = horizontalToVerticalFov(settings.get('fovHorizontal'), camera.aspect);
     camera.updateProjectionMatrix();
@@ -128,7 +130,45 @@ async function boot(): Promise<void> {
   applyFov();
 
   const stats = new StatsOverlay({ container: app, visible: settings.get('showFps') });
-  const panel = new DebugPanel({ container: app, bus, getRenderInfo: () => renderer.info });
+  // ` 鍵改由輸入系統的 debugPanel 動作切換（可重新綁定）。
+  const panel = new DebugPanel({ container: app, bus, getRenderInfo: () => renderer.info, listenKey: false });
+
+  // ── 輸入（M1-03）───────────────────────────────────────
+  const bindings = new Bindings({ storage, bus });
+  let flow: LockFlow | null = null;
+  let refreshOverlay = (): void => {};
+  const pointerLock = new PointerLock({
+    target: renderer.domElement,
+    bus,
+    onChange: (locked, intentional) => {
+      document.documentElement.dataset.swLocked = String(locked);
+      if (!locked) input.handleUnlock();
+      flow?.lockChanged(locked, intentional);
+    },
+    onError: (message) => {
+      console.warn(`[shardwake] 滑鼠鎖定失敗：${message}`);
+      refreshOverlay();
+    },
+  });
+  const input = new InputSystem({
+    bindings,
+    getSettings: () => settings.value,
+    isLocked: () => pointerLock.locked,
+    isRaw: () => pointerLock.rawInput,
+  });
+  // 開機場景的鏡頭位置：一開始看向方塊。
+  input.view.set(0, Math.atan2(0.6 - 1.4, 4.2));
+  // 網址 #nolock：不鎖定滑鼠（開發用，例如在開發者工具中逐步除錯、自動化測試）。
+  flow = new LockFlow({
+    game,
+    lock: pointerLock,
+    useLock: !hasHashFlag(location.hash, 'nolock'),
+    onUpdate: () => refreshOverlay(),
+  });
+  const lockFlow = flow;
+  input.onAction('pause', () => lockFlow.pauseRequested());
+  input.onAction('debugPanel', () => panel.toggle());
+  bus.on('debug:panel', ({ open }) => lockFlow.debugPanelChanged(open));
 
   settings.onChange((s, changed) => {
     if (changed.includes('quality')) viewport.setRenderScale(QUALITY_PRESETS[s.quality].renderScale);
@@ -140,8 +180,10 @@ async function boot(): Promise<void> {
   const world = await initPhysics();
 
   // 註冊順序不影響執行順序（依 SystemOrder），這裡依順序列出方便閱讀。
+  game.addSystem(input);
   game.addSystem(physicsSystem(world));
   game.addSystem(scene);
+  game.addSystem(cameraSystem(camera, input.view));
   game.addSystem(renderSystem(renderer, scene.scene, camera));
   game.addSystem(stats);
   game.addSystem(panel);
@@ -185,14 +227,92 @@ async function boot(): Promise<void> {
     { onChange: () => scene.applyLook() },
   );
 
-  // ── 模式與生命週期（暫時接線）─────────────────────────
-  const showHint = createHint(app);
+  // 輸入：可調數值與監看。
+  panel.bindConfig('輸入/滑鼠', INPUT_CONFIG, {
+    degreesPerCount: {
+      label: '每 count 角度',
+      min: 0.001,
+      max: 0.1,
+      step: 0.001,
+      description: '度／count × 靈敏度；Source／Apex 尺度 0.022',
+    },
+    pitchLimitDeg: { label: 'pitch 上限°', min: 60, max: 89.9, step: 0.1 },
+    preferRawInput: { label: '原始輸入', description: '鎖定時要求 unadjustedMovement（下次鎖定生效）' },
+    spikeThreshold: {
+      label: '跳動門檻',
+      min: 0,
+      max: 3000,
+      step: 10,
+      description: '一般鎖定時，單一事件超過此 count 且前一事件不大就丟棄；0 = 停用',
+    },
+    spikeNeighborRatio: { label: '連續甩動比例', min: 0, max: 1, step: 0.05 },
+    spikeFilterRaw: { label: '原始輸入也過濾' },
+  });
+  panel.bindConfig('輸入/滾輪與鎖定', INPUT_CONFIG, {
+    wheelNotchPx: { label: '滾輪一格 px', min: 1, max: 400, step: 1 },
+    wheelLinePx: { label: '每行 px', min: 1, max: 100, step: 1 },
+    wheelPagePx: { label: '每頁 px', min: 100, max: 2000, step: 10 },
+    wheelResetMs: { label: '滾輪重設 ms', min: 0, max: 2000, step: 10 },
+    relockCooldownMs: { label: '重新鎖定冷卻 ms', min: 0, max: 3000, step: 50, description: '只影響提示文字' },
+  });
+  const inputMonitor = { locked: false, raw: false, yaw: 0, pitch: 0, cm360: 0, move: '0, 0', held: '', spikes: 0 };
+  panel.bindConfig('輸入/監看', inputMonitor, {
+    locked: { label: '已鎖定', readonly: true },
+    raw: { label: '原始輸入', readonly: true },
+    yaw: { label: 'yaw°', readonly: true },
+    pitch: { label: 'pitch°', readonly: true },
+    cm360: { label: 'cm/360', readonly: true },
+    move: { label: '移動', readonly: true },
+    held: { label: '按住', readonly: true },
+    spikes: { label: '丟棄跳動', readonly: true },
+  });
+  game.addSystem({
+    name: 'inputMonitor',
+    order: SystemOrder.debug,
+    update() {
+      if (!panel.isOpen) return;
+      const f = input.frame;
+      inputMonitor.locked = pointerLock.locked;
+      inputMonitor.raw = pointerLock.rawInput;
+      inputMonitor.yaw = THREE.MathUtils.radToDeg(input.view.viewYaw);
+      inputMonitor.pitch = THREE.MathUtils.radToDeg(input.view.viewPitch);
+      inputMonitor.cm360 = cmPer360(settings.get('sensitivity'), settings.get('mouseDpi'));
+      inputMonitor.move = `${f.move.x.toFixed(2)}, ${f.move.y.toFixed(2)}`;
+      inputMonitor.held = actionsInMask(f.held).join(' ');
+      inputMonitor.spikes = input.mouse.spikeFilter.dropped;
+    },
+  });
+
+  // ── 模式、覆蓋層與生命週期 ────────────────────────────
+  const overlay = new StartOverlay(app, bindings);
+  refreshOverlay = () =>
+    overlay.update({
+      mode: game.mode,
+      pauseReason: game.pauseReason,
+      needsRelock: lockFlow.needsRelock,
+      lockError: lockFlow.error,
+      lockCooldown: pointerLock.inCooldown,
+      useLock: lockFlow.useLock,
+      storagePersistent: storage.isPersistent,
+    });
+  // 冷卻提示會隨時間改變：非遊玩畫面時每畫面更新（內容沒變就不動 DOM）。
+  game.addSystem({
+    name: 'startOverlay',
+    order: SystemOrder.ui,
+    update() {
+      if (game.mode !== 'playing' || lockFlow.needsRelock) refreshOverlay();
+    },
+  });
   const syncMode = (mode: GameMode): void => {
     document.documentElement.dataset.swMode = mode;
-    showHint(mode, storage.isPersistent);
+    refreshOverlay();
   };
-  bus.on('game:mode', ({ to }) => syncMode(to));
-  bus.on('storage:status', () => showHint(game.mode, storage.isPersistent));
+  bus.on('game:mode', ({ to }) => {
+    lockFlow.modeChanged(to);
+    syncMode(to);
+  });
+  bus.on('storage:status', () => refreshOverlay());
+  bindings.onChange(() => refreshOverlay());
 
   const lifecycle = new Lifecycle({ bus, onAutoPause: (reason) => game.pause(reason) });
   document.documentElement.dataset.swEmbedded = String(lifecycle.embedded);
@@ -204,19 +324,19 @@ async function boot(): Promise<void> {
     }
   });
 
+  // 點擊遊戲畫面（覆蓋層會冒泡到這裡）：鎖定滑鼠並開始／繼續；調參面板內的點擊不處理。
   app.addEventListener('pointerdown', (e) => {
-    if ((e.target as Element | null)?.closest('.sw-debug')) return;
-    if (game.mode === 'title') game.start();
-    else if (game.mode === 'paused') game.resume();
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && !e.repeat) game.pause('user');
+    if (e.button !== 0 || (e.target as Element | null)?.closest('.sw-debug')) return;
+    void lockFlow.click();
   });
 
   // #debug 時把核心物件掛到 window，方便主控台與自動化測試檢查。
   const exposeDebug = (): void => {
     if (hasHashFlag(location.hash, 'debug')) {
-      const handles = { game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer };
+      const handles = {
+        ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
+        ...{ input, bindings, pointerLock, lockFlow },
+      };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
   };

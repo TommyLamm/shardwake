@@ -10,10 +10,24 @@ import type { GameEvents } from '@/core/events';
 import type { GameStorage } from '@/core/Storage';
 
 export type QualityLevel = 'low' | 'medium' | 'high';
+/** 蹲、開鏡、抓鉤的操作方式（M1-03 的 InputFrame 轉換）。 */
+export type HoldToggle = 'hold' | 'toggle';
 
 export interface Settings {
   /** 滑鼠靈敏度（Source／Apex 尺度：每 count 0.022° × 靈敏度；M1-03 使用）。 */
   sensitivity: number;
+  /** 滑鼠 DPI（只用來換算、顯示 cm/360，不影響轉動量；M1-03）。 */
+  mouseDpi: number;
+  /** Y 軸反轉（M1-03）。 */
+  invertY: boolean;
+  /** 蹲下：按住或切換（M1-03）。 */
+  crouchMode: HoldToggle;
+  /** 開鏡：按住或切換（M1-03）。 */
+  adsMode: HoldToggle;
+  /** 抓鉤：按住或切換（M1-03）。 */
+  grappleMode: HoldToggle;
+  /** 自動衝刺（往前移動即衝刺）；關閉時改用手動衝刺鍵（M1-05 使用）。 */
+  autoSprint: boolean;
   /** 水平 FOV（度），依畫面比例換算成垂直 FOV。 */
   fovHorizontal: number;
   /** 主音量 0–1（M1-13 使用）。 */
@@ -38,6 +52,12 @@ export type SettingSpec =
 /** 欄位規格：預設值、合法範圍與顯示名稱。 */
 export const SETTINGS_SCHEMA = {
   sensitivity: { type: 'number', default: 2, min: 0.05, max: 20, step: 0.01, label: '滑鼠靈敏度' },
+  mouseDpi: { type: 'number', default: 800, min: 100, max: 32000, step: 50, label: '滑鼠 DPI' },
+  invertY: { type: 'boolean', default: false, label: 'Y 軸反轉' },
+  crouchMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '蹲下' },
+  adsMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '開鏡' },
+  grappleMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '抓鉤' },
+  autoSprint: { type: 'boolean', default: true, label: '自動衝刺' },
   fovHorizontal: { type: 'number', default: 103, min: 80, max: 120, step: 1, label: '視野（水平 FOV）' },
   masterVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '主音量' },
   sfxVolume: { type: 'number', default: 1, min: 0, max: 1, step: 0.01, label: '音效音量' },

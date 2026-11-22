@@ -2,7 +2,7 @@
 
 > 在崩解的軌道巨構碎片間高速穿梭、奪取原型武器的單人第一人稱科幻刷寶射擊遊戲。
 
-- 狀態：M1-02 核心執行框架完成（固定 120 Hz 主迴圈、事件、儲存、設定、調參面板；開機畫面仍為發光方塊）。下一步：[M1-03 輸入系統](docs/plans/M1-03-input.md)、[M1-04 物理與訓練場](docs/plans/M1-04-physics-level.md)。
+- 狀態：M1-03 輸入系統完成（滑鼠鎖定與原始輸入、滑鼠視角、可重新綁定的按鍵、每步 InputFrame、「點擊開始」覆蓋層；場景仍為發光方塊，可用滑鼠轉視角）。下一步：[M1-04 物理與訓練場](docs/plans/M1-04-physics-level.md)，之後 [M1-05 移動 I](docs/plans/M1-05-movement-core.md)。
 - 平台：Playroom（桌面瀏覽器），遊戲 ID `shardwake`。
 - 技術：TypeScript、Vite、Three.js、Rapier；幾何、貼圖與音效全部程序生成，不使用外部素材。
 
@@ -35,5 +35,8 @@ npm run cover       # 重新產生佔位封面 public/cover.png
 
 - 調參面板：遊戲中按 `` ` `` 或在網址加上 `#debug` 開啟（Tweakpane，第一次開啟時才載入）。`#debug` 也會把核心物件掛到 `window.__shardwake` 方便在主控台檢查。
 - 畫面角落的 FPS／frame time 由設定「顯示 FPS」開關（目前預設開啟）。
-- 本機儲存的 key 一律以 `shardwake:` 開頭並帶版本（設定為 `shardwake:settings:v1`）；儲存不可用時改用記憶體，遊戲照常運作。
-- 目前的「點擊畫面開始／繼續」與 Esc 暫停是暫時接線，M1-03（輸入）與 M1-14（選單）會取代。
+- 本機儲存的 key 一律以 `shardwake:` 開頭並帶版本（設定為 `shardwake:settings:v1`、按鍵綁定為 `shardwake:bindings:v1`）；儲存不可用時改用記憶體，遊戲照常運作。
+- 點擊畫面會鎖定滑鼠並開始／繼續；Esc 解除鎖定並暫停（Chrome 解鎖後約 1 秒內無法重新鎖定，點擊沒反應時稍候再點）。完整選單在 M1-14。
+- 調參面板開啟時會解除滑鼠鎖定但不暫停（可用鍵盤操作、邊看邊調），點擊畫面恢復滑鼠視角。
+- 網址加上 `#nolock` 時不鎖定滑鼠（點擊直接開始，沒有滑鼠視角），方便在開發者工具中除錯。
+- 按鍵綁定存在 `shardwake:bindings:v1`（以 `KeyboardEvent.code` 綁定，不受輸入法影響）；按鍵設定介面在 M1-14。

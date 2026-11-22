@@ -4,6 +4,8 @@
 //
 // 系統生命週期（全部選填）：
 //   init(game)        註冊時立即呼叫一次。
+//   beginFrame()      每個渲染畫面最先呼叫（任何模式，在固定步之前）；滑鼠視角在這裡套用（M1-03），
+//                     讓同一畫面的固定步與渲染都看到最新的 yaw／pitch，不多等一個畫面。
 //   fixedUpdate(dt)   只在 playing 模式，每個固定步呼叫（dt = 1 / hz）。
 //   update(dt, frame) 每個渲染畫面呼叫一次；dt 為模擬時間（夾住、乘 timeScale；非 playing 時為 0），
 //                     frame.realDt 為夾住後的真實時間（UI 動畫等不受暫停影響的效果使用）。
@@ -24,7 +26,7 @@
 //  1100 ui       HUD、選單（M1-14）
 //  1200 render   renderer.render（M1-09 後處理）
 //  1300 debug    Stats、調參面板（在 render 之後讀取 renderer.info）
-// 每個畫面：先跑完所有 fixed step（每步內依序跑所有系統的 fixedUpdate），
+// 每個畫面：先依序跑 beginFrame，再跑完所有 fixed step（每步內依序跑所有系統的 fixedUpdate），
 // 再依序跑 update，最後依序跑 render。
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents, GameMode, PauseReason } from '@/core/events';
@@ -70,6 +72,7 @@ export interface GameSystem {
   /** 執行順序，建議用 SystemOrder；預設 SystemOrder.world。 */
   readonly order?: number;
   init?(game: Game): void;
+  beginFrame?(): void;
   fixedUpdate?(dt: number): void;
   update?(dt: number, frame: Readonly<FrameInfo>): void;
   render?(alpha: number, frame: Readonly<FrameInfo>): void;
@@ -229,6 +232,8 @@ export class Game {
     const loop = this.loop;
     let steps = 0;
     try {
+      const pre = this.entries;
+      for (let i = 0; i < pre.length; i++) pre[i]!.system.beginFrame?.();
       if (this._mode === 'playing') {
         steps = loop.advance(realDt, this.runFixedStep);
         info.dt = loop.lastScaledDt;
