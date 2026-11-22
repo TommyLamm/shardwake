@@ -1,4 +1,5 @@
-// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬）。
+// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬；
+// M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 相機暫時直接放在玩家插值後的眼睛位置（正式鏡頭在 M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
@@ -22,6 +23,7 @@ import { InputSystem } from '@/input/Input';
 import { LockFlow } from '@/input/LockFlow';
 import { cmPer360, type ViewAngles } from '@/input/Mouse';
 import { PointerLock } from '@/input/PointerLock';
+import { GrappleRope } from '@/fx/GrappleRope';
 import { PHYSICS_CONFIG } from '@/physics/config';
 import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
@@ -187,7 +189,18 @@ async function boot(): Promise<void> {
     object: camera,
     setView: (yaw, pitch) => input.view.set(yaw, pitch),
     checkRespawn: (p) => currentDataLevel()?.checkRespawn(p) ?? null,
+    // 抓鉤脫鉤／落空後關掉「切換模式」的狀態；準星輔助用每畫面的視角。
+    setToggle: (action, on) => input.builder.setToggle(action, on),
+    getAim: () => aimView,
   });
+  const aimView = {
+    get yaw(): number {
+      return input.view.viewYaw;
+    },
+    get pitch(): number {
+      return input.view.viewPitch;
+    },
+  };
   const freeCam = new FreeCamera({
     getFrame: () => input.frame,
     object: camera,
@@ -308,10 +321,13 @@ async function boot(): Promise<void> {
     { enabled: { label: '啟用（穿牆飛行）', description: '除錯用：停用玩家控制器，改用自由飛行相機' } },
     { onChange: (_k, v) => setFlying(Boolean(v)) },
   );
-  // 移動（M1-05、M1-06）：所有 MovementConfig 參數與監看；除錯顯示牆面／邊緣偵測射線。
+  // 移動（M1-05～M1-07）：所有 MovementConfig 參數（含能力開關）與監看；除錯顯示牆面／邊緣偵測射線。
   game.addSystem(bindMovementPanel(panel, player));
   const movementDebug = new MovementDebug({ scene, player, panel });
   game.addSystem(movementDebug);
+  // 抓鉤繩索（M1-07）。
+  const grappleRope = new GrappleRope({ scene, player, camera, panel });
+  game.addSystem(grappleRope);
   const gridKeys: readonly (keyof GreyboxConfig)[] = ['fineLinePx', 'boldLinePx', 'baseLevel', 'fineLevel', 'boldLevel'];
   panel.bindConfig(
     '關卡/灰盒',
@@ -456,7 +472,7 @@ async function boot(): Promise<void> {
       const handles = {
         ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
         ...{ input, bindings, pointerLock, lockFlow },
-        ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug },
+        ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

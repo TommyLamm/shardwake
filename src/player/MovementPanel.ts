@@ -1,4 +1,5 @@
-// 調參面板「移動」資料夾：綁定 MovementConfig 的所有參數，並監看速度曲線、狀態、著地、地面法線、跑牆與攀爬。
+// 調參面板「移動」資料夾：綁定 MovementConfig 的所有參數（含 M1-07 能力開關與能力參數），
+// 並監看速度曲線、狀態、著地、地面法線、跑牆與攀爬、能力（二段跳、噴射燃料、Dash 充能、抓鉤）。
 import { SystemOrder, type GameSystem } from '@/core/Game';
 import type { DebugPanel } from '@/debug/DebugPanel';
 import { MOVEMENT_PANEL } from '@/player/MovementConfig';
@@ -21,6 +22,11 @@ export interface MovementMonitor {
   wallRun: string;
   wallSensor: string;
   mantle: string;
+  doubleJump: string;
+  jetFuel: number;
+  jet: string;
+  dash: string;
+  grapple: string;
 }
 
 /**
@@ -45,6 +51,11 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
     wallRun: '',
     wallSensor: '',
     mantle: '',
+    doubleJump: '',
+    jetFuel: 0,
+    jet: '',
+    dash: '',
+    grapple: '',
   };
   panel.bindConfig(
     '移動/監看',
@@ -65,6 +76,11 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
       wallRun: { label: '跑牆', readonly: true },
       wallSensor: { label: '側牆偵測', readonly: true },
       mantle: { label: '攀爬', readonly: true },
+      doubleJump: { label: '二段跳', readonly: true },
+      jetFuel: { label: '噴射燃料', readonly: true, min: 0, max: 1, params: { view: 'graph' } },
+      jet: { label: '噴射', readonly: true },
+      dash: { label: 'Dash', readonly: true },
+      grapple: { label: '抓鉤', readonly: true },
     },
     { expanded: true },
   );
@@ -94,6 +110,19 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
       const side = (c: typeof w.left): string => (c.found ? `${c.runnable ? '可跑' : '不可跑'} ${c.distance.toFixed(2)} m` : '—');
       m.wallSensor = `左 ${side(w.left)}／右 ${side(w.right)}`;
       m.mantle = s.mantleProgress > 0 ? `攀爬中 ${Math.round(s.mantleProgress * 100)}%（${player.mantle.height.toFixed(2)} m）` : '—';
+      const a = s.abilities;
+      m.doubleJump = a.doubleJump.enabled ? `剩 ${a.doubleJump.remaining}／${a.doubleJump.max}` : '關閉';
+      m.jetFuel = a.jet.fraction;
+      m.jet = a.jet.enabled
+        ? `${a.jet.fuel.toFixed(2)}／${a.jet.capacity.toFixed(2)} s${a.jet.active ? '（推進中）' : a.jet.recharging ? '（回充中）' : ''}`
+        : '關閉';
+      m.dash = a.dash.enabled
+        ? `${a.dash.charges}／${a.dash.maxCharges}${a.dash.charges < a.dash.maxCharges ? `（回充 ${Math.round(a.dash.rechargeProgress * 100)}%）` : ''}${a.dash.active ? ' Dash 中' : ''}`
+        : '關閉';
+      const g = a.grapple;
+      m.grapple = g.enabled
+        ? `${g.phase}${g.cooldown > 0 ? ` 冷卻 ${g.cooldown.toFixed(2)} s` : ''}${g.aimAvailable ? `（可勾取 ${g.aimDistance.toFixed(1)} m）` : ''}`
+        : '關閉';
     },
   };
 }

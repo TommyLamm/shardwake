@@ -1,20 +1,28 @@
-// 玩家控制器（M1-05；M1-06 加入跑牆、蹬牆跳、攀爬）：膠囊體＋Rapier KinematicCharacterController＋可擴充的移動狀態機。
+// 玩家控制器（M1-05；M1-06 加入跑牆、蹬牆跳、攀爬；M1-07 加入二段跳、噴射、Dash、抓鉤）：
+// 膠囊體＋Rapier KinematicCharacterController＋可擴充的移動狀態機。
 //
 // 每個固定步（fixedUpdate → step）：
 //   1. 讀 InputFrame：期望方向（依 yaw）、視線水平方向、蹲／跳／衝刺／開火／開鏡；更新跳躍緩衝。
 //   2. 姿勢：蹲下／起身（膠囊高度在 crouchTransitionTime 內線性過渡，腳底固定；起身前 overlap 檢查頭頂空間）。
+//      能力（abilitiesPreStep）：Dash 回充、抓鉤冷卻、鉤爪發射／飛行／收回。
 //   3. 狀態機 'pre' 轉換 → 目前狀態 step（只改速度）。
 //   4. 移動：期望位移 = 速度 × dt（重力以梯形積分修正）→ computeColliderMovement → 依實際碰撞法線投影速度
 //      （只有「真的被擋住」的分量才移除：撞牆不累積速度、沿牆滑行；自動上台階不會被擋速）。
 //      移動前的速度另存在 preMoveVelocity（跑牆／攀爬的進入條件與保留速度用）。
 //   5. 地面探測：向下 shape cast（球），取得地面法線、距離與表面材質。
 //   6. 牆面偵測（WallSensor）：空中掃描左右側牆；跑牆中追蹤目前的牆。攀爬的前方／邊緣偵測在轉換規則需要時才做。
-//   7. 落地事件與空中能力重置 → 狀態機 'post' 轉換 → 腳步事件 → killVolume 重生。
+//   7. 落地事件與空中能力重置 → 狀態機 'post' 轉換 → 能力（abilitiesPostStep：燃料回充、噴射事件、唯讀狀態）
+//      → 腳步事件 → killVolume 重生。
 // 速度自己維護（不用 Rapier 剛體）；切換狀態不硬性歸零速度（只有重生會歸零；跑牆進入與攀爬結束依計畫改寫速度）。
 //
-// 狀態與轉換規則：states.ts（地面、空中、滑鏟）、wallStates.ts（跑牆、攀爬）。
-// 優先序（MovePriority）：Mantle > Grapple > Dash > WallRun > Slide > Air／Ground（Grapple、Dash 在 M1-07）。
-// 空中能力重置：resetAirAbilities(reason)（著地、開始跑牆、重生；M1-07 的抓鉤也呼叫）→ onAirReset 監聽者與 `player:airReset`。
+// 狀態與轉換規則：states.ts（地面、空中、滑鏟）、wallStates.ts（跑牆、攀爬）、abilityStates.ts（Dash、抓鉤，
+// 以及 AirState 呼叫的二段跳與噴射）。能力計時器與唯讀狀態：Abilities.ts（player.abilities）。
+// 狀態優先序（MovePriority，數字越大越優先；高優先的狀態不會被低優先的狀態打斷）：
+//   Mantle 50 > Grapple 45 > Dash 40 > WallRun 30 > Slide 10 > Air／Ground 0
+//   - 攀爬中不能 Dash、不能發射抓鉤；抓鉤附著可以打斷 Dash；Dash 可以打斷跑牆與滑鏟。
+//   - Dash、抓鉤中正面有可攀邊緣 → 攀爬；同一步同時符合時，攀爬 > 抓鉤 > Dash。
+// 空中能力重置：resetAirAbilities(reason)（著地、開始跑牆、抓鉤附著、重生）→ onAirReset 監聽者與 `player:airReset`；
+// Abilities 監聽它重置二段跳次數（重生時另外補滿燃料、Dash 充能並清除抓鉤冷卻）。
 //
 // 座標：position 是腳底（膠囊底部）位置；眼睛 = position + eyeHeight。yaw 0 面向 -Z、正值向左（M1-03）。
 // 物理世界重建（physics.generation 改變）時自動重建膠囊與角色控制器。
@@ -34,6 +42,16 @@ import { clipVelocity, horizontalSpeed, inputAngleFromForward, jumpSpeedFor, wis
 import { StateMachine } from '@/player/StateMachine';
 import { MoveStateId, registerCoreMovement } from '@/player/states';
 import { angleToWallTangent, registerWallMovement, type WallRunEndReason } from '@/player/wallStates';
+import { Abilities, type AbilityState } from '@/player/Abilities';
+import {
+  AbilityStateId,
+  abilitiesPostStep,
+  abilitiesPreStep,
+  applyJet,
+  registerAbilityMovement,
+  tryDoubleJump,
+  updateGrappleAim,
+} from '@/player/abilityStates';
 import { WallSensor, makeMantlePlan, type MantlePlan, type WallContact } from '@/player/WallSensor';
 
 /** 給鏡頭、HUD、音效、武器讀取的玩家狀態（每步更新，同一個物件）。 */
@@ -66,6 +84,8 @@ export interface PlayerState {
   readonly wallNormal: THREE.Vector3;
   /** 攀爬進度 0..1（不在攀爬時為 0）。 */
   mantleProgress: number;
+  /** 能力的唯讀狀態（Dash 充能、噴射燃料、抓鉤冷卻與準星輔助；M1-14 HUD 用）。 */
+  readonly abilities: Readonly<AbilityState>;
 }
 
 /** 空中能力重置的原因。 */
@@ -95,6 +115,10 @@ export interface PlayerControllerOptions {
   setView?: (yaw: number, pitch: number) => void;
   /** 渲染時放到插值後眼睛位置的物件（暫用：直接放相機；M1-08 改由 CameraRig 讀 PlayerState）。 */
   object?: THREE.Object3D | null;
+  /** 強制關閉切換模式的動作（抓鉤脫鉤或落空後關掉「切換」狀態，例如 input.builder.setToggle）。 */
+  setToggle?: (action: 'grapple', on: boolean) => void;
+  /** 每個渲染畫面的視角（準星輔助用，例如 input.view 的 viewYaw／viewPitch）；省略時用 InputFrame 的視角。 */
+  getAim?: () => { yaw: number; pitch: number };
 }
 
 /** 這一步讀到的輸入（狀態與轉換規則使用）。 */
@@ -107,6 +131,13 @@ export interface MoveInput {
   fireHeld: boolean;
   adsHeld: boolean;
   jumpPressed: boolean;
+  /** 按住跳躍，與這次按住已經過的時間（s；按下的那一步為 0）。噴射用。 */
+  jumpHeld: boolean;
+  jumpHoldTime: number;
+  dashPressed: boolean;
+  grapplePressed: boolean;
+  /** 抓鉤按住（切換模式時為切換狀態）。 */
+  grappleHeld: boolean;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -165,7 +196,14 @@ export class PlayerController implements GameSystem {
     fireHeld: false,
     adsHeld: false,
     jumpPressed: false,
+    jumpHeld: false,
+    jumpHoldTime: 0,
+    dashPressed: false,
+    grapplePressed: false,
+    grappleHeld: false,
   };
+  /** 這一步的視角（弧度）：抓鉤沿 (yaw, pitch) 發射。 */
+  readonly look = { yaw: 0, pitch: 0 };
   /** 期望方向（世界水平單位向量）與輸入長度（0..1）。 */
   readonly wish = { x: 0, z: 0, len: 0 };
   readonly jumpBuffer: InputBuffer;
@@ -241,6 +279,10 @@ export class PlayerController implements GameSystem {
   private readonly graceNormal = new THREE.Vector3();
   private readonly airResetListeners = new Set<(reason: AirResetReason) => void>();
 
+  // ── 能力（M1-07）──
+  /** 二段跳、噴射、Dash、抓鉤的計時器、鉤爪、修正介面與唯讀狀態。 */
+  readonly abilities: Abilities;
+
   private readonly options: PlayerControllerOptions;
   private collider: RAPIER.Collider | null = null;
   private controller: RAPIER.KinematicCharacterController | null = null;
@@ -251,6 +293,7 @@ export class PlayerController implements GameSystem {
   private headroomKey = '';
   private currentHalfHeight = -1;
   private readonly rendered = new THREE.Vector3();
+  private readonly aimOrigin = new THREE.Vector3();
   private readonly collision = new RAPIER.CharacterCollision();
 
   // 事件 payload（重複使用）。
@@ -275,6 +318,7 @@ export class PlayerController implements GameSystem {
     this.options = options;
     this.config = options.config ?? MOVEMENT_CONFIG;
     this.jumpBuffer = new InputBuffer(() => this.config.jumpBufferTime);
+    this.abilities = new Abilities(this.config);
     this.state = {
       position: this.position,
       previousPosition: new THREE.Vector3(),
@@ -291,6 +335,7 @@ export class PlayerController implements GameSystem {
       wallRunSide: null,
       wallNormal: new THREE.Vector3(),
       mantleProgress: 0,
+      abilities: this.abilities.state,
     };
     this.walls = new WallSensor(options.physics, this);
     this.machine = new StateMachine<PlayerController>(this, (from, to) => {
@@ -301,7 +346,12 @@ export class PlayerController implements GameSystem {
     });
     registerCoreMovement(this.machine);
     registerWallMovement(this.machine);
+    registerAbilityMovement(this.machine);
     this.machine.set(MoveStateId.air);
+    this.onAirReset((reason) => {
+      if (reason === 'respawn') this.abilities.refillAll();
+      else this.abilities.resetDoubleJumps();
+    });
   }
 
   /** 玩家膠囊（物理世界重建後會換成新的；尚未建立時為 null）。 */
@@ -325,6 +375,8 @@ export class PlayerController implements GameSystem {
 
   /** 傳送到腳底位置 feet，面向 yaw（弧度）；速度歸零、回到站姿（頭頂有空間時）、狀態設為空中。 */
   teleport(feet: Readonly<Vec3Like>, yaw?: number, pitch = 0): void {
+    // 先離開目前狀態（Dash 結束、脫鉤等的 exit 可能改寫速度），再歸零速度。
+    this.machine.set(MoveStateId.air, true);
     this.position.set(feet.x, feet.y + this.config.skinOffset * 2, feet.z);
     this.state.previousPosition.copy(this.position);
     this.velocity.set(0, 0, 0);
@@ -339,7 +391,6 @@ export class PlayerController implements GameSystem {
     }
     this.applyPosture();
     this.syncColliderToFeet();
-    this.machine.set(MoveStateId.air, true);
     this.clearWallState();
     this.resetAirAbilities('respawn');
     this.state.state = this.machine.currentId;
@@ -372,6 +423,10 @@ export class PlayerController implements GameSystem {
   render(alpha: number): void {
     if (!this.enabled) return;
     this.placeObject(alpha);
+    // 準星輔助（每畫面）：從插值後的眼睛沿目前視角做 raycast。
+    const aim = this.options.getAim?.() ?? this.look;
+    this.eyePosition(alpha, this.aimOrigin);
+    updateGrappleAim(this, this.aimOrigin, aim.yaw, aim.pitch);
   }
 
   /** 插值後的眼睛位置（alpha 為固定步之間的插值係數）。 */
@@ -402,6 +457,7 @@ export class PlayerController implements GameSystem {
 
     this.readInput(dt);
     this.updatePosture(dt);
+    abilitiesPreStep(this, dt);
     this.machine.evaluate('pre');
     this.machine.step(dt);
     const wasGrounded = this.grounded;
@@ -425,6 +481,7 @@ export class PlayerController implements GameSystem {
       this.resetAirAbilities('land');
     }
     this.machine.evaluate('post');
+    abilitiesPostStep(this, dt);
     this.updateFootsteps(moved);
     this.publishState();
 
@@ -465,6 +522,7 @@ export class PlayerController implements GameSystem {
     this.jumpedThisStep = true;
     this.coyoteAvailable = false;
     this.grounded = false;
+    this.abilities.jetArmed = false;
     this.evJump.fromState = this.machine.currentId;
     this.evJump.coyote = coyote;
     this.options.bus?.emit('player:jump', this.evJump);
@@ -478,6 +536,56 @@ export class PlayerController implements GameSystem {
   applyGravity(dt: number, g: number = this.config.gravity): void {
     this.velocity.y = Math.max(this.velocity.y - g * dt, -this.config.maxFallSpeed);
     this.gravityThisStep = g;
+  }
+
+  /**
+   * 額外的垂直加速度（噴射推力；在 applyGravity 之後呼叫）：改變垂直速度，並一併修正梯形積分用的本步加速度。
+   */
+  applyVerticalAcceleration(a: number, dt: number): void {
+    this.velocity.y += a * dt;
+    this.gravityThisStep -= a;
+  }
+
+  /** 腳底下方 distance 公尺內是否有可站立的面（二段跳的落地保護用）。 */
+  groundWithin(distance: number): boolean {
+    const hit = this.castGround(distance);
+    if (!hit || hit.normal.y < Math.cos(this.config.maxSlopeClimbDeg * DEG2RAD)) return false;
+    return hit.distance - PROBE_LIFT <= distance;
+  }
+
+  /** 目前（這一步）的眼睛位置。 */
+  eyeNow(out: THREE.Vector3): THREE.Vector3 {
+    return out.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
+  }
+
+  /** 物理世界（能力的 raycast 用）。 */
+  get physics(): Physics {
+    return this.options.physics;
+  }
+
+  /** 發出遊戲事件（能力模組使用；沒有 bus 時不動作）。 */
+  emit<K extends keyof GameEvents>(name: K, payload: GameEvents[K]): void {
+    this.options.bus?.emit(name, payload);
+  }
+
+  /** 空中：二段跳（AirState 在土狼起跳與蹬牆跳寬限之後呼叫）。 */
+  tryDoubleJump(): boolean {
+    return tryDoubleJump(this);
+  }
+
+  /** 空中：噴射推進（AirState 在重力之後呼叫）。 */
+  applyJet(dt: number): void {
+    applyJet(this, dt);
+  }
+
+  /** 準星輔助：從 origin 沿 (yaw, pitch) 檢查有沒有可勾的表面（預設用這一步的眼睛與視角）。 */
+  updateGrappleAim(origin?: Readonly<THREE.Vector3>, yaw = this.look.yaw, pitch = this.look.pitch): boolean {
+    return updateGrappleAim(this, origin ?? this.eyeNow(this.aimOrigin), yaw, pitch);
+  }
+
+  /** 抓鉤結束（脫鉤、落空）後關掉「切換模式」的抓鉤狀態，下次按 F 才會重新發射。 */
+  releaseGrappleToggle(): void {
+    this.options.setToggle?.('grapple', false);
   }
 
   emitSlideStart(speed: number, boosted: boolean): void {
@@ -738,7 +846,11 @@ export class PlayerController implements GameSystem {
     m.duration = cfg.mantleDuration;
     m.time = 0;
     m.done = false;
-    m.entrySpeed = Math.max(horizontalSpeed(this.preMoveVelocity), horizontalSpeed(this.velocity));
+    // Dash／抓鉤打斷時，以離開該狀態後的速度（Dash 結束速度、抓鉤當下速度）為準，不用 Dash 期間的位移速度。
+    m.entrySpeed =
+      prev === AbilityStateId.dash || prev === AbilityStateId.grapple
+        ? horizontalSpeed(this.velocity)
+        : Math.max(horizontalSpeed(this.preMoveVelocity), horizontalSpeed(this.velocity));
     if (prev === MoveStateId.ground || prev === MoveStateId.slide) this.jumpBuffer.consume();
     this.coyoteAvailable = false;
     const ev = this.evMantle;
@@ -819,6 +931,15 @@ export class PlayerController implements GameSystem {
     inp.fireHeld = isHeld(f, 'fire');
     inp.adsHeld = isHeld(f, 'ads');
     inp.jumpPressed = wasPressed(f, 'jump');
+    inp.jumpHeld = isHeld(f, 'jump');
+    if (inp.jumpPressed) inp.jumpHoldTime = 0;
+    else if (inp.jumpHeld) inp.jumpHoldTime += dt;
+    else inp.jumpHoldTime = 0;
+    inp.dashPressed = wasPressed(f, 'dash');
+    inp.grapplePressed = wasPressed(f, 'grapple');
+    inp.grappleHeld = isHeld(f, 'grapple');
+    this.look.yaw = f.yaw;
+    this.look.pitch = f.pitch;
     this.jumpBuffer.updateFrom(dt, f, 'jump');
     this.forward.x = -Math.sin(f.yaw);
     this.forward.z = -Math.cos(f.yaw);
@@ -897,7 +1018,9 @@ export class PlayerController implements GameSystem {
     const kcc = this.controller!;
     const collider = this.collider!;
     const v = this.velocity;
-    const onGround = (this.machine.is(MoveStateId.ground) || this.machine.is(MoveStateId.slide)) && v.y <= 0;
+    // 地面移動（自動上台階、貼地、忽略可站立的面）：地面、滑鏟、從地面開始且仍貼地的 Dash。
+    const groundDash = this.machine.is(AbilityStateId.dash) && this.abilities.dashRun.onGround;
+    const onGround = (this.machine.is(MoveStateId.ground) || this.machine.is(MoveStateId.slide) || groundDash) && v.y <= 0;
     this.applyControllerConfig(kcc, onGround);
     _desired.x = v.x * dt;
     // 重力的梯形積分：位移用本步開始與結束速度的平均（v 已經減過 g·dt，所以補回 ½ g dt²）。

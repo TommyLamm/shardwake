@@ -54,7 +54,7 @@ export interface GameEvents {
 
   // ── player：移動（M1-05）──────────────────────────────
   // payload 物件由 PlayerController 重複使用：要保存請自行複製。
-  /** 移動狀態切換（ground／air／slide／wallRun／mantle，之後加 dash、grapple）。 */
+  /** 移動狀態切換（ground／air／slide／wallRun／mantle／dash／grapple）。 */
   'player:state': { from: string; to: string };
   /** 起跳（地面、土狼時間或滑鏟中）。 */
   'player:jump': { fromState: string; coyote: boolean };
@@ -83,8 +83,35 @@ export interface GameEvents {
   'player:wallJump': { normal: { x: number; y: number; z: number }; speed: number; grace: boolean };
   /** 開始攀爬；height 為邊緣高度（腳底以上，m），duration 為動作時間（武器短暫放低用）。 */
   'player:mantle': { height: number; duration: number; fromState: string };
-  /** 空中能力重置（二段跳、噴射燃料等；M1-07 接上）：著地、開始跑牆、抓鉤、重生。 */
+  /** 空中能力重置（M1-07 的二段跳次數；重生時另外補滿燃料、Dash 充能並清除抓鉤冷卻）：著地、開始跑牆、抓鉤附著、重生。 */
   'player:airReset': { reason: 'land' | 'wallRun' | 'grapple' | 'respawn' };
+
+  // ── player：二段跳、噴射、Dash、抓鉤（M1-07）───────────
+  // HUD（M1-14）、音效（M1-13）、鏡頭（M1-08）使用；唯讀狀態見 player.abilities.state。
+  /** 二段跳；remaining 為剩餘空中跳躍次數。 */
+  'player:doubleJump': { speed: number; remaining: number };
+  /** 噴射開始；fuel 為剩餘燃料（s）。 */
+  'player:jetStart': { fuel: number };
+  /** 噴射停止；reason：released（放開跳）、empty（燃料耗盡）、landed（著地）、state（離開空中狀態）、disabled。 */
+  'player:jetStop': { fuel: number; reason: string };
+  /** Dash；dir 為水平單位方向，charges 為使用後剩餘的充能。 */
+  'player:dash': { dir: { x: number; y: number; z: number }; fromState: string; charges: number };
+  /** 發射鉤爪；origin 為相機位置，dir 為視線方向（單位向量）。 */
+  'player:grappleFire': { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number } };
+  /** 鉤爪附著；distance 為發射點到錨點的距離（m）。 */
+  'player:grappleAttach': {
+    point: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+    distance: number;
+  };
+  /** 脫鉤；reason：close（距離夠近）、passed（越過錨點）、input（放開／再按）、jump、timeout、disabled、other。 */
+  'player:grappleRelease': { reason: string; duration: number };
+  /** 鉤爪落空：range（超出射程）、surface（打到不可勾的表面）、cancel（飛行中放開）；point 為鉤爪停下的位置。 */
+  'player:grappleMiss': { reason: string; point: { x: number; y: number; z: number } };
+  /** 準星輔助：視線上射程內是否有可勾的表面（改變時發出）；distance 為命中距離（沒有時為 0）。 */
+  'player:grappleAim': { available: boolean; distance: number };
+  /** 能力恢復可用：Dash 回充一格、抓鉤冷卻結束、噴射燃料回滿。 */
+  'player:abilityReady': { ability: 'dash' | 'grapple' | 'jet'; charges: number };
 
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */

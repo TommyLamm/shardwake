@@ -1,4 +1,6 @@
-// 移動手感數值（M1-05 基礎移動、M1-06 跑牆／蹬牆跳／攀爬；M1-07 在同一個檔案擴充）。
+// 移動手感數值（M1-05 基礎移動、M1-06 跑牆／蹬牆跳／攀爬、M1-07 二段跳／噴射／Dash／抓鉤與能力開關）。
+// 能力數值的「實際值」由 Abilities.stat() 讀取：裝備模組（M2-06）與技能（M5-01）透過 AbilityModifiers 修正，
+// 不直接改寫這個物件（這裡是基礎值，給調參面板調整）。
 // - MOVEMENT_CONFIG 是可變物件：PlayerController 每步讀取最新值，調參面板直接改寫欄位即可生效。
 // - MOVEMENT_PANEL 列出每個欄位的範圍、步進與說明文字，依資料夾分組（調參面板「移動」）。
 // - 單位：公尺、秒、m/s、m/s²；角度一律用「度」（面板好讀），程式內再換成弧度。
@@ -168,6 +170,82 @@ export interface MovementConfig {
   /** 結束時向前速度下限（m/s）。 */
   mantleExitMinSpeed: number;
 
+  // ── 能力開關（M1-07；調參面板比較手感用）──
+  /** 啟用二段跳。 */
+  doubleJumpEnabled: boolean;
+  /** 啟用噴射推進。 */
+  jetEnabled: boolean;
+  /** 啟用 Dash。 */
+  dashEnabled: boolean;
+  /** 啟用抓鉤。 */
+  grappleEnabled: boolean;
+
+  // ── 二段跳（M1-07）──
+  /** 空中跳躍次數（著地、跑牆、抓鉤時重置）。 */
+  doubleJumpCount: number;
+  /** 二段跳的垂直速度（m/s）：vy = max(vy, 此值)。 */
+  doubleJumpSpeed: number;
+  /** 水平速度往輸入方向重新導向的比例（0..1，不增加水平速率）。 */
+  doubleJumpRedirect: number;
+  /** 落地保護（s）：下落中、預估這段時間內會著地時，按跳保留給落地起跳（跳躍緩衝），不消耗二段跳。 */
+  doubleJumpLandingGuard: number;
+
+  // ── 噴射推進（M1-07）──
+  /** 向上推力（m/s²，重力另計）。 */
+  jetThrust: number;
+  /** 推力造成的垂直速度上限（m/s）：垂直速度到此值以上不再推。 */
+  jetMaxRiseSpeed: number;
+  /** 水平推力（m/s²，往輸入方向）。 */
+  jetHorizontalAccel: number;
+  /** 水平推力的目標速度（沿輸入方向的速度到此值為止，m/s）。 */
+  jetHorizontalMaxSpeed: number;
+  /** 燃料容量（s）。 */
+  jetFuel: number;
+  /** 著地多久後開始回充（s）；跑牆中直接回充。 */
+  jetRechargeDelay: number;
+  /** 回充速度（燃料秒數 / 秒）。 */
+  jetRechargeRate: number;
+  /** 長按多久才啟動噴射（s，從按下跳算起；二段跳那一下也算）。 */
+  jetHoldDelay: number;
+
+  // ── Dash（M1-07）──
+  /** 充能次數。 */
+  dashCharges: number;
+  /** 每次充能時間（s，依序回充）。 */
+  dashRechargeTime: number;
+  /** 位移距離（m）。 */
+  dashDistance: number;
+  /** 動作時間（s）；期間無重力、垂直速度歸零。 */
+  dashDuration: number;
+  /** 結束時沿 Dash 方向的水平速度下限（m/s）；原本沿該方向更快時保留。 */
+  dashExitMinSpeed: number;
+
+  // ── 抓鉤（M1-07）──
+  /** 鉤爪飛行速度（m/s）。 */
+  grappleHookSpeed: number;
+  /** 射程（m，從相機沿視線）。 */
+  grappleRange: number;
+  /** 落空（或飛行中取消）後的冷卻（s）。 */
+  grappleMissCooldown: number;
+  /** 朝錨點的加速度（m/s²）。 */
+  grapplePullAccel: number;
+  /** 輸入轉向加速度（m/s²，水平）。 */
+  grappleSteerAccel: number;
+  /** 速度上限（m/s）：拉力與轉向不會讓速率超過此值（進入時已更快則保留）。 */
+  grappleMaxSpeed: number;
+  /** 附著時的重力倍率。 */
+  grappleGravityScale: number;
+  /** 與錨點距離小於此值時自動脫鉤（m）。 */
+  grappleReleaseDistance: number;
+  /** 越過錨點判定：速度方向與錨點方向的內積小於此值時脫鉤。 */
+  grapplePassDot: number;
+  /** 附著中按跳脫鉤的額外上拋速度（m/s）。 */
+  grappleJumpBoost: number;
+  /** 最長附著時間（s）。 */
+  grappleMaxTime: number;
+  /** 脫鉤後的冷卻（s）。 */
+  grappleCooldown: number;
+
   // ── 腳步 ──
   /** 每走多少公尺發一次腳步事件（m）。 */
   footstepStride: number;
@@ -254,6 +332,44 @@ export const MOVEMENT_CONFIG: MovementConfig = {
   mantleUpFraction: 0.6,
   mantleExitSpeedKeep: 0.6,
   mantleExitMinSpeed: 4,
+
+  doubleJumpEnabled: true,
+  jetEnabled: true,
+  dashEnabled: true,
+  grappleEnabled: true,
+
+  doubleJumpCount: 1,
+  doubleJumpSpeed: 7.3,
+  doubleJumpRedirect: 0.5,
+  doubleJumpLandingGuard: 0.15,
+
+  jetThrust: 34,
+  jetMaxRiseSpeed: 5,
+  jetHorizontalAccel: 6,
+  jetHorizontalMaxSpeed: 8,
+  jetFuel: 1.0,
+  jetRechargeDelay: 0.3,
+  jetRechargeRate: 0.8,
+  jetHoldDelay: 0.12,
+
+  dashCharges: 2,
+  dashRechargeTime: 1.8,
+  dashDistance: 7,
+  dashDuration: 0.15,
+  dashExitMinSpeed: 12,
+
+  grappleHookSpeed: 150,
+  grappleRange: 45,
+  grappleMissCooldown: 0.8,
+  grapplePullAccel: 50,
+  grappleSteerAccel: 12,
+  grappleMaxSpeed: 26,
+  grappleGravityScale: 0.4,
+  grappleReleaseDistance: 2.5,
+  grapplePassDot: -0.2,
+  grappleJumpBoost: 5,
+  grappleMaxTime: 2.5,
+  grappleCooldown: 4,
 
   footstepStride: 2.4,
 };
@@ -361,6 +477,64 @@ export const MOVEMENT_PANEL: readonly { folder: string; schema: ConfigSchema<Mov
       mantleUpFraction: { label: '往上段比例', min: 0.1, max: 0.9, step: 0.05, description: '先上後前' },
       mantleExitSpeedKeep: { label: '保留水平速度', min: 0, max: 1.5, step: 0.05, description: '× 進入前水平速度' },
       mantleExitMinSpeed: { label: '結束向前速度下限', min: 0, max: 15, step: 0.1, description: 'm/s' },
+    },
+  },
+  {
+    folder: '移動/能力開關',
+    schema: {
+      doubleJumpEnabled: { label: '二段跳' },
+      jetEnabled: { label: '噴射推進' },
+      dashEnabled: { label: 'Dash' },
+      grappleEnabled: { label: '抓鉤' },
+    },
+  },
+  {
+    folder: '移動/二段跳',
+    schema: {
+      doubleJumpCount: { label: '空中跳躍次數', min: 0, max: 5, step: 1, description: '著地、跑牆、抓鉤時重置' },
+      doubleJumpSpeed: { label: '垂直速度', min: 0, max: 20, step: 0.1, description: 'm/s；vy = max(vy, 此值)，7.3 約 1.1 m' },
+      doubleJumpRedirect: { label: '往輸入方向導向', min: 0, max: 1, step: 0.05, description: '水平速度往輸入方向轉的比例（不增速）' },
+      doubleJumpLandingGuard: { label: '落地保護', min: 0, max: 0.5, step: 0.01, description: 's；快著地時按跳保留給落地起跳' },
+    },
+  },
+  {
+    folder: '移動/噴射',
+    schema: {
+      jetThrust: { label: '向上推力', min: 0, max: 100, step: 0.5, description: 'm/s²（重力另計，34 − 24 = 淨上升 10）' },
+      jetMaxRiseSpeed: { label: '推力垂直速度上限', min: 0, max: 20, step: 0.1, description: 'm/s' },
+      jetHorizontalAccel: { label: '水平推力', min: 0, max: 40, step: 0.5, description: 'm/s²（往輸入方向）' },
+      jetHorizontalMaxSpeed: { label: '水平推力目標速度', min: 0, max: 25, step: 0.1, description: 'm/s' },
+      jetFuel: { label: '燃料', min: 0, max: 5, step: 0.05, description: 's' },
+      jetRechargeDelay: { label: '著地回充延遲', min: 0, max: 3, step: 0.05, description: 's；跑牆中直接回充' },
+      jetRechargeRate: { label: '回充速度', min: 0, max: 5, step: 0.05, description: '燃料秒數 / 秒' },
+      jetHoldDelay: { label: '長按啟動時間', min: 0, max: 0.5, step: 0.01, description: 's；從按下跳算起' },
+    },
+  },
+  {
+    folder: '移動/Dash',
+    schema: {
+      dashCharges: { label: '充能次數', min: 0, max: 5, step: 1 },
+      dashRechargeTime: { label: '每次充能時間', min: 0, max: 10, step: 0.05, description: 's（依序回充）' },
+      dashDistance: { label: '位移距離', min: 0, max: 20, step: 0.1, description: 'm' },
+      dashDuration: { label: '動作時間', min: 0.02, max: 1, step: 0.01, description: 's；期間無重力' },
+      dashExitMinSpeed: { label: '結束速度下限', min: 0, max: 30, step: 0.1, description: 'm/s（沿 Dash 方向）' },
+    },
+  },
+  {
+    folder: '移動/抓鉤',
+    schema: {
+      grappleHookSpeed: { label: '鉤爪速度', min: 10, max: 500, step: 5, description: 'm/s' },
+      grappleRange: { label: '射程', min: 5, max: 150, step: 1, description: 'm（從相機沿視線）' },
+      grappleMissCooldown: { label: '落空冷卻', min: 0, max: 5, step: 0.05, description: 's' },
+      grapplePullAccel: { label: '拉力', min: 0, max: 200, step: 1, description: 'm/s²（朝錨點）' },
+      grappleSteerAccel: { label: '輸入轉向', min: 0, max: 60, step: 0.5, description: 'm/s²' },
+      grappleMaxSpeed: { label: '速度上限', min: 1, max: 80, step: 0.5, description: 'm/s' },
+      grappleGravityScale: { label: '重力倍率', min: 0, max: 1.5, step: 0.05 },
+      grappleReleaseDistance: { label: '自動脫鉤距離', min: 0, max: 10, step: 0.1, description: 'm' },
+      grapplePassDot: { label: '越過錨點內積', min: -1, max: 1, step: 0.05, description: '速度方向·錨點方向小於此值時脫鉤' },
+      grappleJumpBoost: { label: '跳躍脫鉤上拋', min: 0, max: 20, step: 0.1, description: 'm/s' },
+      grappleMaxTime: { label: '最長附著', min: 0.1, max: 10, step: 0.05, description: 's' },
+      grappleCooldown: { label: '脫鉤冷卻', min: 0, max: 20, step: 0.1, description: 's' },
     },
   },
   {

@@ -27,6 +27,8 @@ export type WallRunEndReason =
   | 'timeout'
   | 'landed'
   | 'mantle'
+  | 'dash'
+  | 'grapple'
   | 'other';
 
 /** 結束後仍可在寬限時間內蹬牆跳的原因。 */
@@ -85,6 +87,7 @@ export const WallRunState: MoveState<PlayerController> = {
     let reason: WallRunEndReason;
     if (next === MoveStateId.ground) reason = 'landed';
     else if (next === MoveStateId.mantle) reason = 'mantle';
+    else if (next === 'dash' || next === 'grapple') reason = next;
     else reason = ctx.wallRunEndReason ?? 'other';
     ctx.endWallRun(reason, next === MoveStateId.air && GRACE_REASONS.has(reason));
   },

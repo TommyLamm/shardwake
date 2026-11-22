@@ -239,10 +239,12 @@ describe('MovementConfig', () => {
         expect(bound.has(key), key).toBe(false);
         bound.add(key);
         expect(spec!.label, key).toBeTruthy();
+        const value = MOVEMENT_CONFIG[key as keyof MovementConfig];
+        // 能力開關（M1-07）是布林值：只需要標籤。
+        if (typeof value === 'boolean') continue;
         expect(spec!.min, key).toBeDefined();
         expect(spec!.max, key).toBeDefined();
         expect(spec!.step, key).toBeDefined();
-        const value = MOVEMENT_CONFIG[key as keyof MovementConfig];
         expect(value, key).toBeGreaterThanOrEqual(spec!.min!);
         expect(value, key).toBeLessThanOrEqual(spec!.max!);
       }

@@ -1,9 +1,9 @@
-// M1-05／M1-06：玩家控制器在灰盒訓練場（M1-04）的整合測試：出生平台、滑鏟長坡、半管 trimesh、深坑重生、
-// 跑牆長廊、Z 字牆板越過深坑、攀爬測試牆。
+// M1-05／M1-06／M1-07：玩家控制器在灰盒訓練場（M1-04）的整合測試：出生平台、滑鏟長坡、半管 trimesh、深坑重生、
+// 跑牆長廊、Z 字牆板越過深坑、攀爬測試牆、二段跳攀上 4.0 m 牆、抓鉤上高塔。
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Physics } from '@/physics/Physics';
 import { MOVEMENT_CONFIG } from '@/player/MovementConfig';
-import { CLIMB_WALL_HEIGHTS, SLIDE_SLOPE, createTrainingGroundData } from '@/world/levels/TrainingGround';
+import { CLIMB_WALL_HEIGHTS, SLIDE_SLOPE, TOWER_HEIGHTS, createTrainingGroundData } from '@/world/levels/TrainingGround';
 import { MovementSim } from './helpers/movementSim';
 
 beforeAll(async () => {
@@ -176,5 +176,39 @@ describe('訓練場', () => {
       expect(s.player.position.y, `${h} m`).toBeCloseTo(h, 1);
       expect(s.player.grounded, `${h} m`).toBe(true);
     });
+  });
+
+  it('攀爬測試牆 4.0 m：起跳後二段跳可以攀上（M1-07）', () => {
+    const i = CLIMB_WALL_HEIGHTS.indexOf(4);
+    expect(i).toBeGreaterThanOrEqual(0);
+    const s = training([30 + i * 10, 0, 63 + MOVEMENT_CONFIG.radius + 0.4], 0);
+    s.settle();
+    s.input.tap('jump');
+    s.input.down('moveForward');
+    s.step();
+    s.runUntil((p) => p.player.velocity.y <= 0.5, 1);
+    s.input.tap('jump');
+    expect(s.runUntil((p) => p.state === 'mantle', 1)).not.toBeNull();
+    s.runUntil((p) => p.state !== 'mantle', 1);
+    expect(s.player.position.y).toBeCloseTo(4, 1);
+  });
+
+  it('高塔：從塔前 20 m 抓鉤 20 m 高塔的塔頂抓鉤柱，最後站上塔頂（M1-07）', () => {
+    const s = training([32, 0, -30], 0);
+    s.settle();
+    // 塔 6 × 6 m、中心 (32, -50)；抓鉤柱在塔頂中央。
+    const p = s.player.position;
+    const dx = 32 - p.x;
+    const dy = TOWER_HEIGHTS[0] + 1.5 - (p.y + s.player.eyeHeight);
+    const dz = -49.6 - p.z;
+    s.input.setYaw(Math.atan2(-dx, -dz));
+    s.input.setPitch(Math.atan2(dy, Math.hypot(dx, dz)));
+    s.input.down('grapple', 'moveForward');
+    expect(s.runUntil((x) => x.state === 'grapple', 1)).not.toBeNull();
+    s.runUntil((x) => x.state !== 'grapple', 3);
+    s.input.up('grapple');
+    s.runUntil((x) => x.player.grounded, 5);
+    expect(s.player.position.y).toBeCloseTo(TOWER_HEIGHTS[0], 1);
+    expect(s.eventsNamed('player:respawn')).toHaveLength(0);
   });
 });

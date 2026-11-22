@@ -1,6 +1,6 @@
 // 移動無頭測試工具：建立 Rapier 世界、放置幾何（LevelData 基本體）、以腳本輸入逐步模擬 PlayerController。
-// 後續計畫（M1-06 跑牆與攀爬：tests/movement-wall.test.ts；M1-07 能力）沿用：new MovementSim({ primitives, ... })，
-// 用 input.down()/up()/tap()/setMove()/setYaw() 改變輸入，再 step()/run()/runUntil()。
+// 後續計畫（M1-06 跑牆與攀爬：tests/movement-wall.test.ts；M1-07 能力：tests/movement-abilities.test.ts）沿用：
+// new MovementSim({ primitives, ... })，用 input.down()/up()/tap()/setMove()/setYaw()/setPitch() 改變輸入，再 step()/run()/runUntil()。
 import * as THREE from 'three';
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents } from '@/core/events';
@@ -64,6 +64,12 @@ export class ScriptedInput {
     return this;
   }
 
+  /** 視角 pitch（弧度，正值抬頭；抓鉤沿視線發射）。 */
+  setPitch(pitch: number): this {
+    this.pitch = pitch;
+    return this;
+  }
+
   releaseAll(): this {
     this.released |= this.held;
     this.held = 0;
@@ -123,6 +129,16 @@ const PLAYER_EVENTS: readonly (keyof GameEvents)[] = [
   'player:wallJump',
   'player:mantle',
   'player:airReset',
+  'player:doubleJump',
+  'player:jetStart',
+  'player:jetStop',
+  'player:dash',
+  'player:grappleFire',
+  'player:grappleAttach',
+  'player:grappleRelease',
+  'player:grappleMiss',
+  'player:grappleAim',
+  'player:abilityReady',
 ];
 
 /** 一個無頭移動模擬（需先 await Physics.init()）。 */

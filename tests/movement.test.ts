@@ -5,7 +5,7 @@ import { Physics } from '@/physics/Physics';
 import { MOVEMENT_CONFIG } from '@/player/MovementConfig';
 import { jumpSpeedFor } from '@/player/movementMath';
 import type { LevelPrimitive } from '@/world/LevelData';
-import { MovementSim, boxMinMax, floorBox } from './helpers/movementSim';
+import { MovementSim, boxMinMax, floorBox, type MovementSimOptions } from './helpers/movementSim';
 
 beforeAll(async () => {
   await Physics.init();
@@ -163,10 +163,11 @@ describe('跳躍', () => {
   });
 
   /** 高 5 m 的平台（x < 0），往 +X 走出邊緣；回傳離地那一步的模擬。 */
-  function walkOffLedge(): MovementSim {
+  function walkOffLedge(config?: MovementSimOptions['config']): MovementSim {
     const s = sim({
       primitives: [boxMinMax('ledge', [-20, -1, -10], [0, 5, 10], 'floor'), floorBox('ground', -50, 50, -50, 50)],
       spawn: { pos: [-3, 5, 0], yaw: Math.PI / 2 },
+      config,
     });
     s.settle();
     s.input.down('moveRight');
@@ -188,7 +189,8 @@ describe('跳躍', () => {
   });
 
   it('土狼時間：離開平台 0.2 s 後按跳不能起跳（落地時緩衝也已逾時）', () => {
-    const s = walkOffLedge();
+    // 關閉二段跳（M1-07）：否則這一下會變成二段跳（見 movement-abilities.test.ts）。
+    const s = walkOffLedge({ doubleJumpEnabled: false });
     s.run(0.2);
     s.input.tap('jump');
     s.step();
@@ -199,11 +201,14 @@ describe('跳躍', () => {
   });
 
   /** 從 3 m 高處落下；pressBeforeLanding 秒前按跳。回傳落地與起跳的步數。 */
-  function bufferedJump(pressBeforeLanding: number | null): { landStep: number; jumpStep: number | null } {
+  function bufferedJump(
+    pressBeforeLanding: number | null,
+    config?: MovementSimOptions['config'],
+  ): { landStep: number; jumpStep: number | null } {
     const dry = sim({ primitives: FLAT, spawn: { pos: [0, 3, 0] } });
     dry.runUntil((x) => x.player.grounded, 3);
     const landStep = dry.stepCount;
-    const s = sim({ primitives: FLAT, spawn: { pos: [0, 3, 0] } });
+    const s = sim({ primitives: FLAT, spawn: { pos: [0, 3, 0] }, config });
     if (pressBeforeLanding !== null) {
       const pressStep = landStep - Math.round(pressBeforeLanding * s.hz);
       s.step(pressStep - 1);
@@ -221,7 +226,8 @@ describe('跳躍', () => {
     expect(buffered.jumpStep).not.toBeNull();
     // 落地那一步偵測著地，下一個地面步立刻起跳（地面上只停留一步，不套摩擦）。
     expect(buffered.jumpStep! - buffered.landStep).toBeLessThanOrEqual(1);
-    expect(bufferedJump(0.2).jumpStep).toBeNull();
+    // 0.12 s 在二段跳的落地保護（0.15 s）內，留給落地起跳；0.2 s 前按跳在開啟二段跳時會變成二段跳（M1-07），這裡關閉。
+    expect(bufferedJump(0.2, { doubleJumpEnabled: false }).jumpStep).toBeNull();
     expect(bufferedJump(null).jumpStep).toBeNull();
   });
 
