@@ -1,9 +1,9 @@
-// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）並掛上開機場景。
+// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
-import RAPIER from '@dimforge/rapier3d-compat';
+// 玩家控制器（M1-05）完成前，以暫用自由飛行相機巡視訓練場。
 import * as THREE from 'three';
-import { BOOT_SCENE_CONFIG as CFG } from '@/bootConfig';
+import { FREE_CAMERA_CONFIG, FreeCamera } from '@/camera/FreeCamera';
 import { LOOP_CONFIG, VIEWPORT_CONFIG } from '@/core/config';
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents, GameMode } from '@/core/events';
@@ -22,8 +22,19 @@ import { InputSystem } from '@/input/Input';
 import { LockFlow } from '@/input/LockFlow';
 import { cmPer360, type ViewAngles } from '@/input/Mouse';
 import { PointerLock } from '@/input/PointerLock';
+import { PHYSICS_CONFIG } from '@/physics/config';
+import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { StartOverlay } from '@/ui/StartOverlay';
-import { BootScene } from '@/world/BootScene';
+import {
+  GREYBOX_CONFIG,
+  GREYBOX_MATERIALS,
+  GreyboxVisuals,
+  createGreyboxEnvironment,
+  type GreyboxConfig,
+} from '@/world/Greybox';
+import { DataLevel, LevelManager } from '@/world/Level';
+import { LevelDebug } from '@/world/LevelDebug';
+import { TrainingGround } from '@/world/levels/TrainingGround';
 import './style.css';
 
 function getAppRoot(): HTMLElement {
@@ -32,30 +43,13 @@ function getAppRoot(): HTMLElement {
   return el;
 }
 
-async function initPhysics(): Promise<RAPIER.World> {
-  await RAPIER.init();
-  const world = new RAPIER.World({ x: 0, y: CFG.gravityY, z: 0 });
+async function initPhysics(): Promise<void> {
+  await Physics.init();
   console.info(
-    `[shardwake] Rapier ${RAPIER.version()} 已初始化；crossOriginIsolated=${String(
+    `[shardwake] Rapier ${Physics.version} 已初始化；crossOriginIsolated=${String(
       globalThis.crossOriginIsolated ?? false,
     )}；SharedArrayBuffer ${typeof SharedArrayBuffer === 'undefined' ? '不可用' : '可用'}（不需要）`,
   );
-  return world;
-}
-
-/** Rapier 世界：固定步內以 stepDt 推進（M1-04 擴充成完整物理系統）。 */
-function physicsSystem(world: RAPIER.World): GameSystem {
-  return {
-    name: 'physics',
-    order: SystemOrder.physics,
-    fixedUpdate(dt) {
-      world.timestep = dt;
-      world.step();
-    },
-    dispose() {
-      world.free();
-    },
-  };
 }
 
 function renderSystem(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): GameSystem {
@@ -108,11 +102,10 @@ async function boot(): Promise<void> {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(CFG.clearColor);
+  renderer.setClearColor(GREYBOX_CONFIG.clearColor);
   app.appendChild(renderer.domElement);
 
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 200);
-  camera.position.set(0, 1.4, 4.2);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 600);
   const applyFov = (): void => {
     camera.fov = horizontalToVerticalFov(settings.get('fovHorizontal'), camera.aspect);
     camera.updateProjectionMatrix();
@@ -156,8 +149,6 @@ async function boot(): Promise<void> {
     isLocked: () => pointerLock.locked,
     isRaw: () => pointerLock.rawInput,
   });
-  // 開機場景的鏡頭位置：一開始看向方塊。
-  input.view.set(0, Math.atan2(0.6 - 1.4, 4.2));
   // 網址 #nolock：不鎖定滑鼠（開發用，例如在開發者工具中逐步除錯、自動化測試）。
   flow = new LockFlow({
     game,
@@ -176,17 +167,52 @@ async function boot(): Promise<void> {
     if (changed.includes('showFps')) stats.setVisible(s.showFps);
   });
 
-  const scene = new BootScene(CFG);
-  const world = await initPhysics();
+  // ── 物理與關卡（M1-04）─────────────────────────────────
+  await initPhysics();
+  const physics = new Physics({ bus });
+  const scene = new THREE.Scene();
+  const environment = createGreyboxEnvironment(scene);
+  const visuals = new GreyboxVisuals(GREYBOX_MATERIALS, GREYBOX_CONFIG, renderer.capabilities.getMaxAnisotropy());
+  const levels = new LevelManager({ physics, scene, visuals, bus });
+  const currentDataLevel = (): DataLevel | null => (levels.current instanceof DataLevel ? levels.current : null);
+  const feet = new THREE.Vector3();
+  const freeCam = new FreeCamera({
+    getFrame: () => input.frame,
+    object: camera,
+    setView: (yaw, pitch) => input.view.set(yaw, pitch),
+    checkRespawn: (eye) => {
+      const lvl = currentDataLevel();
+      return lvl ? lvl.checkRespawn(feet.set(eye.x, eye.y - freeCam.config.eyeHeight, eye.z)) : null;
+    },
+  });
+  // 區域追蹤的對象：自由相機的「腳底」位置（M1-05 改成玩家）。
+  const focusFeet = new THREE.Vector3();
+  const getFocus = (): THREE.Vector3 =>
+    focusFeet.set(freeCam.position.x, freeCam.position.y - freeCam.config.eyeHeight, freeCam.position.z);
+  levels.setFocus(getFocus);
+  const level = await levels.load(new TrainingGround());
+  const spawn = level.getSpawn();
+  freeCam.teleport(spawn.pos, spawn.yaw);
+  const levelDebug = new LevelDebug({
+    scene,
+    levels,
+    physics,
+    panel,
+    bus,
+    getFocus,
+    teleport: (s) => freeCam.teleport(s.pos, s.yaw),
+  });
 
   // 註冊順序不影響執行順序（依 SystemOrder），這裡依順序列出方便閱讀。
   game.addSystem(input);
-  game.addSystem(physicsSystem(world));
-  game.addSystem(scene);
+  game.addSystem(freeCam);
+  game.addSystem(new PhysicsSystem(physics));
+  game.addSystem(levels);
   game.addSystem(cameraSystem(camera, input.view));
-  game.addSystem(renderSystem(renderer, scene.scene, camera));
+  game.addSystem(renderSystem(renderer, scene, camera));
   game.addSystem(stats);
   game.addSystem(panel);
+  game.addSystem(levelDebug);
 
   // ── 調參面板 ─────────────────────────────────────────
   panel.bindConfig('核心/主迴圈', game.loop, {
@@ -215,17 +241,64 @@ async function boot(): Promise<void> {
     Object.assign(settingsCopy, s);
     settingsBinding.refresh();
   });
+  // 物理、自由相機與灰盒外觀：可調數值。
   panel.bindConfig(
-    '開機場景',
-    CFG,
+    '物理',
+    PHYSICS_CONFIG,
     {
-      spinSpeed: { label: '旋轉速度', params: { x: { min: -5, max: 5 }, y: { min: -5, max: 5 } } },
-      emissiveIntensity: { label: '自發光強度', min: 0, max: 5, step: 0.05 },
-      haloOpacity: { label: '光暈透明度', min: 0, max: 1, step: 0.01 },
-      haloScale: { label: '光暈大小', min: 1, max: 2, step: 0.01 },
+      worldGravityY: {
+        label: '世界重力 y',
+        min: -40,
+        max: 0,
+        step: 0.1,
+        description: 'm/s²；只影響動態物件，玩家用自訂重力（M1-05）',
+      },
+      solverIterations: { label: '求解迭代', min: 1, max: 16, step: 1 },
     },
-    { onChange: () => scene.applyLook() },
+    { onChange: () => physics.applyConfig() },
   );
+  panel.bindConfig('物理', physics, { stepCount: { label: '累計步數', readonly: true } });
+  panel.bindConfig('自由相機', FREE_CAMERA_CONFIG, {
+    speed: { label: '速度 m/s', min: 1, max: 60, step: 0.5 },
+    boostMultiplier: { label: 'Shift 倍率', min: 1, max: 10, step: 0.1 },
+    responsiveness: { label: '跟手程度', min: 1, max: 40, step: 0.5, description: '速度平滑的倒數時間常數（1/s）' },
+    eyeHeight: { label: '眼高 m', min: 0.5, max: 3, step: 0.05 },
+  });
+  panel.bindConfig('自由相機', freeCam, { enabled: { label: '啟用' } });
+  const gridKeys: readonly (keyof GreyboxConfig)[] = ['fineLinePx', 'boldLinePx', 'baseLevel', 'fineLevel', 'boldLevel'];
+  panel.bindConfig(
+    '關卡/灰盒',
+    GREYBOX_CONFIG,
+    {
+      fineLinePx: { label: '1 m 線寬 px', min: 0, max: 16, step: 0.5 },
+      boldLinePx: { label: '5 m 線寬 px', min: 0, max: 24, step: 0.5 },
+      baseLevel: { label: '底色亮度', min: 0, max: 1, step: 0.01 },
+      fineLevel: { label: '細線亮度', min: 0, max: 1, step: 0.01 },
+      boldLevel: { label: '粗線亮度', min: 0, max: 1, step: 0.01 },
+      roughness: { label: '粗糙度', min: 0, max: 1, step: 0.01 },
+      metalness: { label: '金屬度', min: 0, max: 1, step: 0.01 },
+      hemiIntensity: { label: '半球光', min: 0, max: 5, step: 0.05 },
+      sunIntensity: { label: '方向光', min: 0, max: 5, step: 0.05 },
+      fogNear: { label: '霧起點 m', min: 0, max: 500, step: 5 },
+      fogFar: { label: '霧終點 m', min: 10, max: 1000, step: 5 },
+      clearColor: { label: '背景色', params: { view: 'color' } },
+    },
+    {
+      onChange: (key) => {
+        visuals.refresh(gridKeys.includes(key));
+        environment.apply();
+        renderer.setClearColor(GREYBOX_CONFIG.clearColor);
+      },
+    },
+  );
+  for (const def of Object.values(GREYBOX_MATERIALS)) {
+    panel.bindConfig(
+      '關卡/灰盒顏色',
+      def,
+      { color: { label: def.label, params: { view: 'color' } } },
+      { onChange: () => visuals.refresh() },
+    );
+  }
 
   // 輸入：可調數值與監看。
   panel.bindConfig('輸入/滑鼠', INPUT_CONFIG, {
@@ -336,6 +409,7 @@ async function boot(): Promise<void> {
       const handles = {
         ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
         ...{ input, bindings, pointerLock, lockFlow },
+        ...{ physics, levels, freeCam, levelDebug, scene },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

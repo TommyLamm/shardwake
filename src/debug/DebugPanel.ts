@@ -83,10 +83,17 @@ export interface PaneBinding {
   readonly element?: HTMLElement;
 }
 
+export interface PaneButton {
+  on(event: 'click', handler: () => void): unknown;
+  dispose(): void;
+}
+
 export interface PaneFolder {
   addFolder(params: { title: string; expanded?: boolean }): PaneFolder;
   addBinding(obj: object, key: string, params?: Record<string, unknown>): PaneBinding;
   addBlade(params: Record<string, unknown>): unknown;
+  /** 按鈕（Tweakpane addButton）；替身可省略。 */
+  addButton?(params: { title: string; label?: string }): PaneButton;
   refresh(): void;
   dispose(): void;
 }
@@ -129,12 +136,21 @@ export interface DebugPanelOptions {
   config?: DebugConfig;
 }
 
+/** 調參面板按鈕（bindButtons）。 */
+export interface ButtonSpec {
+  title: string;
+  /** 按鈕左側的標籤（選填）。 */
+  label?: string;
+  onClick: () => void;
+}
+
 interface Registration {
   path: string[];
   obj: object;
   schema: Record<string, ParamSpec | undefined>;
   options: BindConfigOptions<object>;
-  built: PaneBinding[];
+  built: { refresh?(): void; dispose(): void }[];
+  buttons?: readonly ButtonSpec[];
 }
 
 export class DebugPanel implements GameSystem {
@@ -228,8 +244,34 @@ export class DebugPanel implements GameSystem {
     if (this.pane) this.build(reg);
     return {
       refresh: () => {
-        for (const b of reg.built) b.refresh();
+        for (const b of reg.built) b.refresh?.();
       },
+      dispose: () => {
+        const idx = this.registrations.indexOf(reg);
+        if (idx >= 0) this.registrations.splice(idx, 1);
+        for (const b of reg.built) b.dispose();
+        reg.built = [];
+      },
+    };
+  }
+
+  /**
+   * 註冊一組按鈕（例如「傳送到各區」）。回傳的 dispose() 移除按鈕（換關卡時重建）。
+   */
+  bindButtons(folderPath: string, buttons: readonly ButtonSpec[], options: { expanded?: boolean } = {}): ConfigBinding {
+    const reg: Registration = {
+      path: parseFolderPath(folderPath),
+      obj: {},
+      schema: {},
+      options: { expanded: options.expanded ?? false },
+      built: [],
+      buttons,
+    };
+    if (reg.path.length === 0) throw new Error('bindButtons 需要資料夾名稱');
+    this.registrations.push(reg);
+    if (this.pane) this.build(reg);
+    return {
+      refresh: () => {},
       dispose: () => {
         const idx = this.registrations.indexOf(reg);
         if (idx >= 0) this.registrations.splice(idx, 1);
@@ -333,6 +375,17 @@ export class DebugPanel implements GameSystem {
 
   private build(reg: Registration): void {
     const folder = this.folderFor(reg.path, reg.options.expanded ?? false);
+    if (reg.buttons) {
+      for (const spec of reg.buttons) {
+        if (!folder.addButton) continue;
+        const params: { title: string; label?: string } = { title: spec.title };
+        if (spec.label !== undefined) params.label = spec.label;
+        const button = folder.addButton(params);
+        button.on('click', () => spec.onClick());
+        reg.built.push(button);
+      }
+      return;
+    }
     const target = reg.obj as Record<string, unknown>;
     for (const [key, spec] of Object.entries(reg.schema)) {
       if (!spec) continue;

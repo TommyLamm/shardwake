@@ -38,6 +38,20 @@ export interface GameEvents {
   /** 按鍵綁定變更（已存檔）。 */
   'input:bindings': Record<string, never>;
 
+  // ── physics（M1-04）──────────────────────────────────
+  /** 物理世界重建（換關卡）；舊的 Collider 與 handle 全部失效。 */
+  'physics:reset': Record<string, never>;
+
+  // ── world：Level（M1-04）─────────────────────────────
+  /** 關卡載入完成（碰撞體與網格都已建立）。 */
+  'level:loaded': { id: string; name: string };
+  /** 關卡卸載（物理世界重建前）。 */
+  'level:unloaded': { id: string };
+  /** 追蹤對象（玩家或自由相機）進入／離開區域；event 為區域資料指定的觸發事件名稱。 */
+  'level:zone': { levelId: string; zoneId: string; entered: boolean; event?: string | undefined };
+  /** 追蹤對象落入 killVolume，回到檢查點。 */
+  'level:respawn': { levelId: string; checkpointId: string };
+
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */
   'debug:panel': { open: boolean };

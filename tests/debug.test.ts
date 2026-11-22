@@ -33,9 +33,26 @@ afterAll(() => {
 });
 
 /** 假的 Tweakpane：記錄資料夾與綁定，可模擬使用者修改值。 */
+class FakeButton {
+  handlers: (() => void)[] = [];
+  disposed = false;
+  constructor(readonly params: { title: string; label?: string }) {}
+  on(_ev: 'click', h: () => void) {
+    this.handlers.push(h);
+    return this;
+  }
+  click() {
+    for (const h of this.handlers) h();
+  }
+  dispose() {
+    this.disposed = true;
+  }
+}
+
 class FakeFolder implements PaneFolder {
   folders: FakeFolder[] = [];
   bindings: FakeBinding[] = [];
+  buttons: FakeButton[] = [];
   blades: Record<string, unknown>[] = [];
   disposed = false;
   constructor(readonly title: string) {}
@@ -47,6 +64,11 @@ class FakeFolder implements PaneFolder {
   addBinding(obj: object, key: string, params?: Record<string, unknown>) {
     const b = new FakeBinding(obj as Record<string, unknown>, key, params ?? {});
     this.bindings.push(b);
+    return b;
+  }
+  addButton(params: { title: string; label?: string }) {
+    const b = new FakeButton(params);
+    this.buttons.push(b);
     return b;
   }
   addBlade(params: Record<string, unknown>) {
@@ -203,6 +225,30 @@ describe('DebugPanel.bindConfig', () => {
     await panel.open();
     expect(pane.find('x')!.bindings.map((b) => b.key)).toEqual(['a']);
     warn.mockRestore();
+  });
+});
+
+describe('DebugPanel.bindButtons', () => {
+  it('開啟前註冊的按鈕延後建立；點擊呼叫 onClick；dispose 移除', async () => {
+    const { pane, panel } = makePanel();
+    const onA = vi.fn();
+    const binding = panel.bindButtons('關卡/傳送', [
+      { title: '靶場', onClick: onA },
+      { title: '高塔', label: '傳送', onClick: vi.fn() },
+    ]);
+    expect(panel.registeredFolders).toContain('關卡/傳送');
+    await panel.open();
+    const folder = pane.find('關卡/傳送')!;
+    expect(folder.buttons.map((b) => b.params)).toEqual([{ title: '靶場' }, { title: '高塔', label: '傳送' }]);
+    folder.buttons[0]!.click();
+    expect(onA).toHaveBeenCalledTimes(1);
+    binding.dispose();
+    expect(folder.buttons.every((b) => b.disposed)).toBe(true);
+    expect(panel.registeredFolders).not.toContain('關卡/傳送');
+    // 開啟後註冊的立即建立。
+    panel.bindButtons('關卡/傳送', [{ title: '戰區', onClick: vi.fn() }]);
+    expect(folder.buttons).toHaveLength(3);
+    expect(() => panel.bindButtons('', [])).toThrow();
   });
 });
 
