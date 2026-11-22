@@ -204,6 +204,14 @@ export class Physics {
   }
 
   /**
+   * 有新增／移除碰撞體時先同步 broad phase（不移動物件）。直接使用 Rapier API 查詢的程式
+   * （例如 M1-05 的 KinematicCharacterController）在查詢前呼叫。
+   */
+  ensureQueries(): void {
+    this.beforeQuery();
+  }
+
+  /**
    * 射線：dir 不必正規化（內部正規化）；回傳最近命中或 null。
    * mask 為要命中的碰撞群組（預設只有世界）；預設排除 sensor（觸發區）。
    */

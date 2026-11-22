@@ -23,7 +23,7 @@
 | [M1-02](docs/plans/M1-02-core-runtime.md) | 核心執行框架：主迴圈、事件、儲存、設定、調參面板外殼 | M1-01 | 完成 |
 | [M1-03](docs/plans/M1-03-input.md) | 輸入系統：滑鼠鎖定、按鍵綁定、每步輸入 | M1-02 | 完成 |
 | [M1-04](docs/plans/M1-04-physics-level.md) | 物理、關卡建構器與灰盒訓練場 | M1-02 | 完成 |
-| [M1-05](docs/plans/M1-05-movement-core.md) | 移動 I：地面、空中、跳躍、蹲、滑鏟 ★ | M1-03、M1-04 | 未開始 |
+| [M1-05](docs/plans/M1-05-movement-core.md) | 移動 I：地面、空中、跳躍、蹲、滑鏟 ★ | M1-03、M1-04 | 完成 |
 | [M1-06](docs/plans/M1-06-movement-wall.md) | 移動 II：跑牆、蹬牆跳、攀爬 | M1-05 | 未開始 |
 | [M1-07](docs/plans/M1-07-movement-abilities.md) | 移動 III：二段跳、噴射、Dash、抓鉤 ★ | M1-06 | 未開始 |
 | [M1-08](docs/plans/M1-08-camera-feel.md) | 鏡頭手感 | M1-05 | 未開始 |

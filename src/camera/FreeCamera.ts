@@ -1,4 +1,4 @@
-// 暫用自由飛行相機（M1-05 玩家控制器完成前巡視場地用；之後保留為除錯用的穿牆飛行）。
+// 自由飛行相機：M1-04 暫用巡視場地；M1-05 起保留為除錯用的穿牆飛行（調參面板「自由相機/啟用」，預設關閉）。
 // - 固定步內讀 InputFrame：WASD 沿視線方向飛行、Space 上升、C 下降、Shift（dash 動作）加速。
 // - 速度以指數平滑趨近目標（放開就停），位置在固定步積分、渲染時以 alpha 插值。
 // - 視角沿用 M1-03 的 yaw／pitch（yaw 0 面向 -Z、正值向左）；鏡頭旋轉由 cameraSystem 套用。
@@ -108,6 +108,8 @@ export class FreeCamera implements GameSystem {
   }
 
   render(alpha: number): void {
+    // 停用時不動相機（相機交給玩家控制器）。
+    if (!this.enabled) return;
     this.rendered.lerpVectors(this.previous, this.position, alpha);
     this.options.object?.position.copy(this.rendered);
   }

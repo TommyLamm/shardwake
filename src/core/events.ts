@@ -52,6 +52,25 @@ export interface GameEvents {
   /** 追蹤對象落入 killVolume，回到檢查點。 */
   'level:respawn': { levelId: string; checkpointId: string };
 
+  // ── player：移動（M1-05）──────────────────────────────
+  // payload 物件由 PlayerController 重複使用：要保存請自行複製。
+  /** 移動狀態切換（ground／air／slide，之後加 wallRun、mantle、dash、grapple）。 */
+  'player:state': { from: string; to: string };
+  /** 起跳（地面、土狼時間或滑鏟中）。 */
+  'player:jump': { fromState: string; coyote: boolean };
+  /** 落地；impactSpeed 為落地前的下落速度（m/s，正值）。 */
+  'player:land': { impactSpeed: number; surface: string };
+  /** 開始滑鏟；boosted 表示這次有推進（不在冷卻中）。 */
+  'player:slideStart': { speed: number; boosted: boolean };
+  /** 結束滑鏟。 */
+  'player:slideEnd': { speed: number };
+  /** 姿勢改變（蹲下或起身）。 */
+  'player:crouch': { crouched: boolean };
+  /** 腳步（地面移動每走 footstepStride 公尺一次）；surface 為腳下表面材質。 */
+  'player:footstep': { surface: string; speed: number };
+  /** 落入 killVolume 後回到檢查點（速度歸零）；pos 為重生的腳底位置。 */
+  'player:respawn': { pos: { x: number; y: number; z: number } };
+
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */
   'debug:panel': { open: boolean };

@@ -1,7 +1,7 @@
-// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）。
+// 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
-// 玩家控制器（M1-05）完成前，以暫用自由飛行相機巡視訓練場。
+// 相機暫時直接放在玩家插值後的眼睛位置（正式鏡頭在 M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
 import * as THREE from 'three';
 import { FREE_CAMERA_CONFIG, FreeCamera } from '@/camera/FreeCamera';
 import { LOOP_CONFIG, VIEWPORT_CONFIG } from '@/core/config';
@@ -24,6 +24,8 @@ import { cmPer360, type ViewAngles } from '@/input/Mouse';
 import { PointerLock } from '@/input/PointerLock';
 import { PHYSICS_CONFIG } from '@/physics/config';
 import { Physics, PhysicsSystem } from '@/physics/Physics';
+import { bindMovementPanel } from '@/player/MovementPanel';
+import { PlayerController } from '@/player/PlayerController';
 import { StartOverlay } from '@/ui/StartOverlay';
 import {
   GREYBOX_CONFIG,
@@ -62,7 +64,7 @@ function renderSystem(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera:
   };
 }
 
-/** 暫時的鏡頭：每個渲染畫面直接套用滑鼠視角（不插值、不平滑；M1-05／M1-08 換成正式鏡頭）。 */
+/** 暫時的鏡頭：每個渲染畫面直接套用滑鼠視角（不插值、不平滑；位置由玩家或自由相機設定；M1-08 換成正式鏡頭）。 */
 function cameraSystem(camera: THREE.Camera, view: ViewAngles): GameSystem {
   return {
     name: 'camera',
@@ -176,6 +178,15 @@ async function boot(): Promise<void> {
   const levels = new LevelManager({ physics, scene, visuals, bus });
   const currentDataLevel = (): DataLevel | null => (levels.current instanceof DataLevel ? levels.current : null);
   const feet = new THREE.Vector3();
+  const player = new PlayerController({
+    physics,
+    bus,
+    getFrame: () => input.frame,
+    getSettings: () => settings.value,
+    object: camera,
+    setView: (yaw, pitch) => input.view.set(yaw, pitch),
+    checkRespawn: (p) => currentDataLevel()?.checkRespawn(p) ?? null,
+  });
   const freeCam = new FreeCamera({
     getFrame: () => input.frame,
     object: camera,
@@ -185,14 +196,38 @@ async function boot(): Promise<void> {
       return lvl ? lvl.checkRespawn(feet.set(eye.x, eye.y - freeCam.config.eyeHeight, eye.z)) : null;
     },
   });
-  // 區域追蹤的對象：自由相機的「腳底」位置（M1-05 改成玩家）。
+  // 自由相機預設關閉（除錯飛行：調參面板「自由相機/啟用」）。
+  freeCam.enabled = false;
+  player.enabled = true;
+  // 區域追蹤的對象：玩家腳底（飛行除錯時為自由相機的腳底）。
   const focusFeet = new THREE.Vector3();
   const getFocus = (): THREE.Vector3 =>
-    focusFeet.set(freeCam.position.x, freeCam.position.y - freeCam.config.eyeHeight, freeCam.position.z);
+    freeCam.enabled
+      ? focusFeet.set(freeCam.position.x, freeCam.position.y - freeCam.config.eyeHeight, freeCam.position.z)
+      : focusFeet.copy(player.position);
   levels.setFocus(getFocus);
   const level = await levels.load(new TrainingGround());
   const spawn = level.getSpawn();
-  freeCam.teleport(spawn.pos, spawn.yaw);
+  player.teleport(spawn.pos, spawn.yaw);
+  const teleportActive = (s: { pos: THREE.Vector3; yaw: number }): void => {
+    if (freeCam.enabled) freeCam.teleport(s.pos, s.yaw);
+    else player.teleport(s.pos, s.yaw);
+  };
+  /** 切換除錯飛行：從目前位置接續，不跳視角。 */
+  const setFlying = (fly: boolean): void => {
+    const yaw = input.view.yaw;
+    const pitch = input.view.pitch;
+    if (fly) {
+      freeCam.teleport(player.position, yaw, pitch);
+      freeCam.enabled = true;
+      player.enabled = false;
+    } else {
+      feet.set(freeCam.position.x, freeCam.position.y - freeCam.config.eyeHeight, freeCam.position.z);
+      player.teleport(feet, yaw, pitch);
+      player.enabled = true;
+      freeCam.enabled = false;
+    }
+  };
   const levelDebug = new LevelDebug({
     scene,
     levels,
@@ -200,11 +235,12 @@ async function boot(): Promise<void> {
     panel,
     bus,
     getFocus,
-    teleport: (s) => freeCam.teleport(s.pos, s.yaw),
+    teleport: teleportActive,
   });
 
   // 註冊順序不影響執行順序（依 SystemOrder），這裡依順序列出方便閱讀。
   game.addSystem(input);
+  game.addSystem(player);
   game.addSystem(freeCam);
   game.addSystem(new PhysicsSystem(physics));
   game.addSystem(levels);
@@ -264,7 +300,15 @@ async function boot(): Promise<void> {
     responsiveness: { label: '跟手程度', min: 1, max: 40, step: 0.5, description: '速度平滑的倒數時間常數（1/s）' },
     eyeHeight: { label: '眼高 m', min: 0.5, max: 3, step: 0.05 },
   });
-  panel.bindConfig('自由相機', freeCam, { enabled: { label: '啟用' } });
+  const flyState = { enabled: false };
+  panel.bindConfig(
+    '自由相機',
+    flyState,
+    { enabled: { label: '啟用（穿牆飛行）', description: '除錯用：停用玩家控制器，改用自由飛行相機' } },
+    { onChange: (_k, v) => setFlying(Boolean(v)) },
+  );
+  // 移動（M1-05）：所有 MovementConfig 參數與監看。
+  game.addSystem(bindMovementPanel(panel, player));
   const gridKeys: readonly (keyof GreyboxConfig)[] = ['fineLinePx', 'boldLinePx', 'baseLevel', 'fineLevel', 'boldLevel'];
   panel.bindConfig(
     '關卡/灰盒',
@@ -409,7 +453,7 @@ async function boot(): Promise<void> {
       const handles = {
         ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
         ...{ input, bindings, pointerLock, lockFlow },
-        ...{ physics, levels, freeCam, levelDebug, scene },
+        ...{ physics, levels, freeCam, levelDebug, scene, player },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
