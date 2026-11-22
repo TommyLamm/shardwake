@@ -15,6 +15,7 @@
 
 ## 任務
 
+- [ ] 確認 GitHub repository 已設為公開：平台要求 Release 來自公開 repository，而 `TommyLamm/shardwake` 建立時是 private。改成公開前先取得使用者同意。
 - [ ] 把平台的 `templates/game-release.yml` 複製到 `.github/workflows/release.yml`：`GAME_DIR` 設為 `dist`；在版本檢查前加入 `npm ci` 與 `npm run build`；Node 版本依範本要求（24.22.1 以上）；不加入 `continue-on-error` 或 `always()`。
 - [ ] 本機完整驗證：把平台 repository clone 到暫存目錄，執行 `npm run game:pack -- <本專案>/dist <暫存>/game.zip` 與 `npm run game:validate -- <暫存>/game.zip`；ZIP 輸出放在成品目錄之外。
 - [ ] 版本：`public/game.json` 與 `package.json` 的 `version` 設為 `0.1.0`，或由使用者決定改用預發布版 `0.1.0-alpha.1`（平台需要手動選擇匯入）。
