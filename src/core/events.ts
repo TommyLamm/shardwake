@@ -54,7 +54,7 @@ export interface GameEvents {
 
   // ── player：移動（M1-05）──────────────────────────────
   // payload 物件由 PlayerController 重複使用：要保存請自行複製。
-  /** 移動狀態切換（ground／air／slide，之後加 wallRun、mantle、dash、grapple）。 */
+  /** 移動狀態切換（ground／air／slide／wallRun／mantle，之後加 dash、grapple）。 */
   'player:state': { from: string; to: string };
   /** 起跳（地面、土狼時間或滑鏟中）。 */
   'player:jump': { fromState: string; coyote: boolean };
@@ -70,6 +70,21 @@ export interface GameEvents {
   'player:footstep': { surface: string; speed: number };
   /** 落入 killVolume 後回到檢查點（速度歸零）；pos 為重生的腳底位置。 */
   'player:respawn': { pos: { x: number; y: number; z: number } };
+
+  // ── player：跑牆、蹬牆跳、攀爬（M1-06）─────────────────
+  /** 開始跑牆；side 為牆在玩家（行進方向）的哪一側，normal 為牆面法線（水平、朝牆外）。 */
+  'player:wallRunStart': { side: 'left' | 'right'; normal: { x: number; y: number; z: number } };
+  /**
+   * 結束跑牆；reason：jump（蹬牆跳）、released（放開前進）、wallEnded（偵測不到牆）、slow（速度太低）、
+   * crouch（按蹲）、timeout（超過最長時間）、landed（著地）、mantle（轉為攀爬）、other（其他狀態打斷）。
+   */
+  'player:wallRunEnd': { reason: string; duration: number };
+  /** 蹬牆跳；normal 為蹬離的牆面法線，grace 表示是在離牆後的寬限時間內起跳。 */
+  'player:wallJump': { normal: { x: number; y: number; z: number }; speed: number; grace: boolean };
+  /** 開始攀爬；height 為邊緣高度（腳底以上，m），duration 為動作時間（武器短暫放低用）。 */
+  'player:mantle': { height: number; duration: number; fromState: string };
+  /** 空中能力重置（二段跳、噴射燃料等；M1-07 接上）：著地、開始跑牆、抓鉤、重生。 */
+  'player:airReset': { reason: 'land' | 'wallRun' | 'grapple' | 'respawn' };
 
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */

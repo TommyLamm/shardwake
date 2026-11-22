@@ -1,4 +1,4 @@
-// 移動手感數值（M1-05；M1-06／M1-07 在同一個檔案擴充）。
+// 移動手感數值（M1-05 基礎移動、M1-06 跑牆／蹬牆跳／攀爬；M1-07 在同一個檔案擴充）。
 // - MOVEMENT_CONFIG 是可變物件：PlayerController 每步讀取最新值，調參面板直接改寫欄位即可生效。
 // - MOVEMENT_PANEL 列出每個欄位的範圍、步進與說明文字，依資料夾分組（調參面板「移動」）。
 // - 單位：公尺、秒、m/s、m/s²；角度一律用「度」（面板好讀），程式內再換成弧度。
@@ -100,6 +100,74 @@ export interface MovementConfig {
   /** 速度低於此值時結束滑鏟（m/s）。 */
   slideEndSpeed: number;
 
+  // ── 牆面偵測與跑牆（M1-06）──
+  /** 側面牆偵測距離 = 膠囊半徑 + 此值（m）：空中每步往左右（相對速度方向）做水平 shape cast。 */
+  wallDetectExtra: number;
+  /** 可跑牆的牆面法線 |n.y| 上限（越小越要求垂直）。 */
+  wallMaxNormalY: number;
+  /** 進入跑牆的最低水平速度（m/s）。 */
+  wallRunMinSpeed: number;
+  /** 進入跑牆時，速度方向與牆面切線的最大夾角（度）。 */
+  wallRunMaxAngleDeg: number;
+  /** 進入跑牆的最低離地高度（腳底到下方地面，m）。 */
+  wallRunMinHeight: number;
+  /** 離開同一面牆後多久才能再貼上（s；著地後重置）。 */
+  wallRunSameWallCooldown: number;
+  /** 進入跑牆時沿牆速度至少為此值（m/s）。 */
+  wallRunEntrySpeed: number;
+  /** 進入跑牆時最多保留的上升速度（m/s）。 */
+  wallRunMaxRiseSpeed: number;
+  /** 進入跑牆時最多保留的下落速度（m/s，正值；0 = 貼牆時止住下墜）。 */
+  wallRunMaxEntryFallSpeed: number;
+  /** 跑牆重力的最終值（m/s²）。 */
+  wallRunGravity: number;
+  /** 跑牆重力從 0 增加到最終值的時間（s）。 */
+  wallRunGravityRampTime: number;
+  /** 跑牆重力曲線的指數：g = 最終值 × (t / 增加時間)^指數（1 = 線性、2 = 先慢後快）。 */
+  wallRunGravityCurve: number;
+  /** 朝牆面的貼附加速度（m/s²）。 */
+  wallRunStickAccel: number;
+  /** 朝牆面的貼附速度上限（m/s）。 */
+  wallRunStickMaxSpeed: number;
+  /** 跑牆最長時間（s）。 */
+  wallRunMaxTime: number;
+  /** 水平速度低於此值時結束跑牆（m/s）。 */
+  wallRunEndSpeed: number;
+
+  // ── 蹬牆跳（M1-06）──
+  /** 蹬牆跳保留的沿牆速度比例。 */
+  wallJumpAlongScale: number;
+  /** 蹬牆跳沿牆面法線（離牆）的速度（m/s）。 */
+  wallJumpNormalSpeed: number;
+  /** 蹬牆跳的向上速度（m/s）。 */
+  wallJumpUpSpeed: number;
+  /** 視線離開牆面時，蹬牆跳水平方向往視線偏轉的權重（0 = 不偏轉、1 = 完全朝視線）。 */
+  wallJumpLookInfluence: number;
+  /** 跑牆結束（牆面結束、放開前進、逾時）後仍可蹬牆跳的時間（s）。 */
+  wallJumpGraceTime: number;
+
+  // ── 攀爬（M1-06）──
+  /** 前方牆偵測距離（膠囊表面往前，m）。 */
+  mantleReach: number;
+  /** 視線與牆面法線（反向）的最大夾角（度）：正面牆才攀爬。 */
+  mantleMaxFacingDeg: number;
+  /** 邊緣高度下限（腳底以上，m）。 */
+  mantleMinHeight: number;
+  /** 邊緣高度上限（腳底以上，m）。 */
+  mantleMaxHeight: number;
+  /** 邊緣頂面最大坡度（度）。 */
+  mantleMaxSlopeDeg: number;
+  /** 上升速度低於此值才會攀爬（m/s）。 */
+  mantleMaxRiseSpeed: number;
+  /** 攀爬動作時間（s）。 */
+  mantleDuration: number;
+  /** 攀爬動作中「往上」段佔的比例（其餘為「往前」段）。 */
+  mantleUpFraction: number;
+  /** 結束時保留進入前水平速度的比例。 */
+  mantleExitSpeedKeep: number;
+  /** 結束時向前速度下限（m/s）。 */
+  mantleExitMinSpeed: number;
+
   // ── 腳步 ──
   /** 每走多少公尺發一次腳步事件（m）。 */
   footstepStride: number;
@@ -152,6 +220,40 @@ export const MOVEMENT_CONFIG: MovementConfig = {
   slideSlopeFactor: 1.0,
   slideSteerDegPerSec: 90,
   slideEndSpeed: 4.5,
+
+  wallDetectExtra: 0.35,
+  wallMaxNormalY: 0.15,
+  wallRunMinSpeed: 6,
+  wallRunMaxAngleDeg: 50,
+  wallRunMinHeight: 0.6,
+  wallRunSameWallCooldown: 0.4,
+  wallRunEntrySpeed: 10.5,
+  wallRunMaxRiseSpeed: 3,
+  wallRunMaxEntryFallSpeed: 0,
+  wallRunGravity: 8,
+  wallRunGravityRampTime: 1.2,
+  wallRunGravityCurve: 2,
+  wallRunStickAccel: 20,
+  wallRunStickMaxSpeed: 2,
+  wallRunMaxTime: 1.8,
+  wallRunEndSpeed: 5,
+
+  wallJumpAlongScale: 0.9,
+  wallJumpNormalSpeed: 7,
+  wallJumpUpSpeed: 7.5,
+  wallJumpLookInfluence: 0.5,
+  wallJumpGraceTime: 0.15,
+
+  mantleReach: 0.6,
+  mantleMaxFacingDeg: 45,
+  mantleMinHeight: 0.5,
+  mantleMaxHeight: 2.0,
+  mantleMaxSlopeDeg: 30,
+  mantleMaxRiseSpeed: 4,
+  mantleDuration: 0.28,
+  mantleUpFraction: 0.6,
+  mantleExitSpeedKeep: 0.6,
+  mantleExitMinSpeed: 4,
 
   footstepStride: 2.4,
 };
@@ -213,6 +315,52 @@ export const MOVEMENT_PANEL: readonly { folder: string; schema: ConfigSchema<Mov
       slideSteerDegPerSec: { label: '轉向°/s', min: 0, max: 360, step: 5 },
       slideEndSpeed: { label: '結束速度', min: 0, max: 15, step: 0.1, description: 'm/s；低於此值結束滑鏟' },
       crouchTransitionTime: { label: '蹲起過渡', min: 0.01, max: 1, step: 0.01, description: 's；膠囊高度過渡時間' },
+    },
+  },
+  {
+    folder: '移動/跑牆',
+    schema: {
+      wallDetectExtra: { label: '牆面偵測距離', min: 0.05, max: 1.5, step: 0.01, description: 'm；膠囊半徑 + 此值內的側面牆' },
+      wallMaxNormalY: { label: '牆面 |n.y| 上限', min: 0, max: 0.5, step: 0.01, description: '越小越要求垂直' },
+      wallRunMinSpeed: { label: '進入最低速度', min: 0, max: 20, step: 0.1, description: 'm/s（水平）' },
+      wallRunMaxAngleDeg: { label: '進入最大夾角°', min: 5, max: 89, step: 1, description: '速度方向與牆面切線' },
+      wallRunMinHeight: { label: '最低離地高度', min: 0, max: 3, step: 0.05, description: 'm' },
+      wallRunSameWallCooldown: { label: '同牆重貼冷卻', min: 0, max: 3, step: 0.05, description: 's；著地後重置' },
+      wallRunEntrySpeed: { label: '進入沿牆速度下限', min: 0, max: 25, step: 0.1, description: 'm/s' },
+      wallRunMaxRiseSpeed: { label: '進入保留上升', min: 0, max: 10, step: 0.1, description: 'm/s' },
+      wallRunMaxEntryFallSpeed: { label: '進入保留下落', min: 0, max: 30, step: 0.1, description: 'm/s；0 = 貼牆時止住下墜' },
+      wallRunGravity: { label: '跑牆重力', min: 0, max: 40, step: 0.1, description: 'm/s²（最終值）' },
+      wallRunGravityRampTime: { label: '重力增加時間', min: 0.01, max: 5, step: 0.05, description: 's；從 0 增加到最終值' },
+      wallRunGravityCurve: { label: '重力曲線指數', min: 0.25, max: 4, step: 0.05, description: '1 = 線性、2 = 先慢後快' },
+      wallRunStickAccel: { label: '貼附加速度', min: 0, max: 100, step: 1, description: 'm/s²；朝牆面' },
+      wallRunStickMaxSpeed: { label: '貼附速度上限', min: 0, max: 10, step: 0.1, description: 'm/s' },
+      wallRunMaxTime: { label: '最長時間', min: 0.1, max: 10, step: 0.05, description: 's' },
+      wallRunEndSpeed: { label: '結束速度', min: 0, max: 20, step: 0.1, description: 'm/s；低於此值結束跑牆' },
+    },
+  },
+  {
+    folder: '移動/蹬牆跳',
+    schema: {
+      wallJumpAlongScale: { label: '沿牆速度比例', min: 0, max: 1.5, step: 0.05 },
+      wallJumpNormalSpeed: { label: '離牆速度', min: 0, max: 20, step: 0.1, description: 'm/s（牆面法線方向）' },
+      wallJumpUpSpeed: { label: '向上速度', min: 0, max: 20, step: 0.1, description: 'm/s' },
+      wallJumpLookInfluence: { label: '視線偏轉權重', min: 0, max: 1, step: 0.05, description: '視線離開牆面時往視線方向偏轉' },
+      wallJumpGraceTime: { label: '離牆後可蹬時間', min: 0, max: 0.5, step: 0.01, description: 's；牆面結束或放開前進後' },
+    },
+  },
+  {
+    folder: '移動/攀爬',
+    schema: {
+      mantleReach: { label: '前方偵測距離', min: 0.05, max: 2, step: 0.01, description: 'm（膠囊表面往前）' },
+      mantleMaxFacingDeg: { label: '面向牆最大夾角°', min: 5, max: 89, step: 1, description: '視線與牆面；超過時視為側面牆' },
+      mantleMinHeight: { label: '邊緣高度下限', min: 0, max: 2, step: 0.05, description: 'm（腳底以上）' },
+      mantleMaxHeight: { label: '邊緣高度上限', min: 0.5, max: 4, step: 0.05, description: 'm（腳底以上）' },
+      mantleMaxSlopeDeg: { label: '頂面最大坡度°', min: 0, max: 60, step: 1 },
+      mantleMaxRiseSpeed: { label: '上升速度上限', min: 0, max: 20, step: 0.1, description: 'm/s；上升比這快時不攀爬' },
+      mantleDuration: { label: '動作時間', min: 0.05, max: 1.5, step: 0.01, description: 's' },
+      mantleUpFraction: { label: '往上段比例', min: 0.1, max: 0.9, step: 0.05, description: '先上後前' },
+      mantleExitSpeedKeep: { label: '保留水平速度', min: 0, max: 1.5, step: 0.05, description: '× 進入前水平速度' },
+      mantleExitMinSpeed: { label: '結束向前速度下限', min: 0, max: 15, step: 0.1, description: 'm/s' },
     },
   },
   {

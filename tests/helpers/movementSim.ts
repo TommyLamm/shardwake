@@ -1,5 +1,5 @@
 // 移動無頭測試工具：建立 Rapier 世界、放置幾何（LevelData 基本體）、以腳本輸入逐步模擬 PlayerController。
-// 後續計畫（M1-06 跑牆、M1-07 能力）沿用：new MovementSim({ primitives, ... })，
+// 後續計畫（M1-06 跑牆與攀爬：tests/movement-wall.test.ts；M1-07 能力）沿用：new MovementSim({ primitives, ... })，
 // 用 input.down()/up()/tap()/setMove()/setYaw() 改變輸入，再 step()/run()/runUntil()。
 import * as THREE from 'three';
 import { EventBus } from '@/core/EventBus';
@@ -118,6 +118,11 @@ const PLAYER_EVENTS: readonly (keyof GameEvents)[] = [
   'player:crouch',
   'player:footstep',
   'player:respawn',
+  'player:wallRunStart',
+  'player:wallRunEnd',
+  'player:wallJump',
+  'player:mantle',
+  'player:airReset',
 ];
 
 /** 一個無頭移動模擬（需先 await Physics.init()）。 */

@@ -1,6 +1,6 @@
 // 基礎移動狀態（Ground、Air、Slide）與集中管理的轉換規則（M1-05）。
-// 後續計畫在 registerXxx() 註冊自己的狀態與規則，例如 M1-06 的 WallRun／Mantle、M1-07 的 Dash／Grapple；
-// 優先序由 Transition.priority 決定（數字越大越優先）：
+// 後續計畫在 registerXxx() 註冊自己的狀態與規則，例如 M1-06 的 WallRun／Mantle（wallStates.ts）、M1-07 的 Dash／Grapple；
+// 優先序由 Transition.priority 決定（數字越大越優先），各層級見 MovePriority：
 //   post 階段：滑鏟→空中 10、空中→滑鏟（按住蹲落地）10、空中→地面 0、地面→空中 0、滑鏟→地面 0
 //   pre 階段：地面→滑鏟 10
 // 規則：狀態切換永不硬性歸零速度。各狀態的 step 只依物理規則（加速、摩擦、重力）改變速度。
@@ -17,11 +17,28 @@ import {
 } from '@/player/movementMath';
 import type { MoveState, StateMachine } from '@/player/StateMachine';
 
-/** 基礎狀態 id。後續計畫加入 'wallRun'、'mantle'、'dash'、'grapple'。 */
+/** 移動狀態 id。ground／air／slide 為 M1-05，wallRun／mantle 為 M1-06；M1-07 加入 'dash'、'grapple'。 */
 export const MoveStateId = {
   ground: 'ground',
   air: 'air',
   slide: 'slide',
+  wallRun: 'wallRun',
+  mantle: 'mantle',
+} as const;
+
+/**
+ * 轉換規則的優先序層級（同一個來源狀態、同一個階段內比較，越大越優先）。
+ * 整體順序：Mantle > Grapple > Dash > WallRun > Slide > Air／Ground（M1-07 的 Dash／Grapple 用 dash／grapple 層級）。
+ */
+export const MovePriority = {
+  base: 0,
+  slide: 10,
+  wallRunExit: 10,
+  wallRunLand: 20,
+  wallRun: 30,
+  dash: 40,
+  grapple: 45,
+  mantle: 50,
 } as const;
 
 const _slope = { x: 0, z: 0 };
@@ -71,6 +88,8 @@ export const AirState: MoveState<PlayerController> = {
       if (ctx.airTime <= cfg.coyoteTime + 1e-9) ctx.tryJump(true);
       else ctx.coyoteAvailable = false;
     }
+    // 跑牆剛結束（牆面結束、放開前進、逾時）的寬限時間內按跳 → 蹬牆跳（M1-06；優先於 M1-07 的二段跳）。
+    ctx.tryWallJumpGrace();
     const wish = ctx.wish;
     if (wish.len > 0) {
       accelerate(v, wish.x, wish.z, cfg.runSpeed * wish.len, cfg.airAccel, dt, cfg.airWishSpeedCap);
@@ -144,7 +163,7 @@ export function registerCoreMovement(machine: StateMachine<PlayerController>): v
       from: ground,
       to: slide,
       phase: 'pre',
-      priority: 10,
+      priority: MovePriority.slide,
       when: (c) => c.grounded && c.input.crouchPressed && horizontalSpeed(c.velocity) >= c.config.slideMinSpeed,
     })
     // ── post：依移動結果 ──
@@ -153,7 +172,7 @@ export function registerCoreMovement(machine: StateMachine<PlayerController>): v
       from: slide,
       to: air,
       phase: 'post',
-      priority: 10,
+      priority: MovePriority.slide,
       when: (c) => !c.grounded,
     })
     .addTransition({
@@ -168,7 +187,7 @@ export function registerCoreMovement(machine: StateMachine<PlayerController>): v
       from: air,
       to: slide,
       phase: 'post',
-      priority: 10,
+      priority: MovePriority.slide,
       when: (c) => c.grounded && c.input.crouchHeld && horizontalSpeed(c.velocity) >= c.config.slideMinSpeed,
     })
     .addTransition({ name: '落地 → 地面', from: air, to: ground, phase: 'post', when: (c) => c.grounded })

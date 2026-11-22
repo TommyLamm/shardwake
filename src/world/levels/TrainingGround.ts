@@ -93,6 +93,12 @@ export const RANGE_DISTANCES = [10, 25, 50, 75] as const;
 export const RANGE_FIRING_LINE_Z = 40;
 export const RANGE_LANE_X = -64;
 export const KILL_Y = -30;
+/**
+ * Z 字牆板（深坑上方）：左右交錯的可跑牆板，內側牆面 x = -36.5／-31.5（內距 5 m，比長廊窄 1 m），
+ * 每片長 9 m、間隔 9.5 m，遠端往中線內傾 tiltDeg（M1-06 依跑牆／蹬牆跳數值調整；原本各向外偏 20°，
+ * 蹬牆跳的橫向速度不夠跨到對面）。
+ */
+export const ZIGZAG = { count: 5, leftFaceX: -36.5, rightFaceX: -31.5, firstZ: -24, spacing: 9.5, length: 9, thickness: 0.6, height: 9, baseY: -2, tiltDeg: 5 } as const;
 
 function buildPrimitives(): LevelPrimitive[] {
   const P: LevelPrimitive[] = [];
@@ -153,16 +159,18 @@ function buildPrimitives(): LevelPrimitive[] {
     boxMinMax('wallrun-wall-w', 'wallrun', [-38, 0, -10], [-37, 6, 30]),
     boxMinMax('wallrun-wall-e', 'wallrun', [-31, 0, -10], [-30, 6, 30]),
   );
-  // ── Z 字牆板（深坑上方，左右交錯、各偏 20°）──
-  for (let i = 0; i < 5; i++) {
+  // ── Z 字牆板（深坑上方，左右交錯、遠端往中線內傾；見 ZIGZAG）──
+  const zz = ZIGZAG;
+  for (let i = 0; i < zz.count; i++) {
     const left = i % 2 === 0;
     P.push({
       id: `zigzag-${i}`,
       type: 'box',
       material: 'wallrun',
-      pos: [left ? -39 : -29, 2.5, -24 - i * 9.5],
-      size: [0.6, 9, 9],
-      rot: [0, left ? 20 : -20, 0],
+      pos: [left ? zz.leftFaceX - zz.thickness / 2 : zz.rightFaceX + zz.thickness / 2, zz.baseY + zz.height / 2, zz.firstZ - i * zz.spacing],
+      size: [zz.thickness, zz.height, zz.length],
+      // rot y 為負時遠端（-Z）往 +X 偏：左板往中線內傾用負角度，右板用正角度。
+      rot: [0, left ? -zz.tiltDeg : zz.tiltDeg, 0],
     });
   }
 

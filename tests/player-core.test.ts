@@ -14,6 +14,8 @@ import {
   wishDirection,
 } from '@/player/movementMath';
 import { StateMachine, type MoveState } from '@/player/StateMachine';
+import { angleToWallTangent, mantleProgress, wallRunGravityAt } from '@/player/wallStates';
+import { ProbeKind, ProbeLog } from '@/player/WallSensor';
 
 const v3 = (x = 0, y = 0, z = 0): { x: number; y: number; z: number } => ({ x, y, z });
 
@@ -246,5 +248,70 @@ describe('MovementConfig', () => {
       }
     }
     expect([...bound].sort()).toEqual(Object.keys(MOVEMENT_CONFIG).sort());
+  });
+});
+
+describe('跑牆與攀爬（M1-06）', () => {
+  it('預設值符合計畫', () => {
+    expect(defaultMovementConfig()).toMatchObject({
+      wallDetectExtra: 0.35,
+      wallMaxNormalY: 0.15,
+      wallRunMinSpeed: 6,
+      wallRunMaxAngleDeg: 50,
+      wallRunMinHeight: 0.6,
+      wallRunSameWallCooldown: 0.4,
+      wallRunEntrySpeed: 10.5,
+      wallRunMaxRiseSpeed: 3,
+      wallRunGravity: 8,
+      wallRunGravityRampTime: 1.2,
+      wallRunMaxTime: 1.8,
+      wallRunEndSpeed: 5,
+      wallJumpAlongScale: 0.9,
+      wallJumpNormalSpeed: 7,
+      wallJumpUpSpeed: 7.5,
+      mantleReach: 0.6,
+      mantleMinHeight: 0.5,
+      mantleMaxHeight: 2.0,
+      mantleMaxSlopeDeg: 30,
+      mantleMaxRiseSpeed: 4,
+      mantleDuration: 0.28,
+      mantleExitSpeedKeep: 0.6,
+      mantleExitMinSpeed: 4,
+    });
+    const folders = MOVEMENT_PANEL.map((g) => g.folder);
+    expect(folders).toEqual(expect.arrayContaining(['移動/跑牆', '移動/蹬牆跳', '移動/攀爬']));
+  });
+
+  it('純函式：重力曲線、攀爬路徑進度、與牆面切線的夾角', () => {
+    expect(wallRunGravityAt(-1, 8, 1.2, 2)).toBe(0);
+    expect(wallRunGravityAt(0.3, 8, 1.2, 2)).toBeCloseTo(0.5, 9);
+    expect(wallRunGravityAt(1, 8, 0, 2)).toBe(8);
+    const out = { up: 0, forward: 0 };
+    expect(mantleProgress(0, 0.6, out)).toEqual({ up: 0, forward: 0 });
+    expect(mantleProgress(0.3, 0.6, out).up).toBeCloseTo(0.75, 9);
+    expect(out.forward).toBe(0);
+    mantleProgress(0.6, 0.6, out);
+    expect(out.up).toBe(1);
+    expect(out.forward).toBe(0);
+    expect(mantleProgress(0.8, 0.6, out).forward).toBeCloseTo(0.5, 9);
+    expect(mantleProgress(1, 0.6, out)).toEqual({ up: 1, forward: 1 });
+    expect(angleToWallTangent(0, -1, -1, 0)).toBeCloseTo(0, 9);
+    expect(angleToWallTangent(Math.sin(0.5), -Math.cos(0.5), -1, 0)).toBeCloseTo(0.5, 9);
+    expect(angleToWallTangent(1, 0, -1, 0)).toBeCloseTo(Math.PI / 2, 9);
+  });
+
+  it('ProbeLog 只在開啟時記錄，容量固定', () => {
+    const log = new ProbeLog();
+    const o = { x: 0, y: 1, z: 2 };
+    log.push(o, 1, 1, 1, ProbeKind.valid);
+    expect(log.count).toBe(0);
+    log.enabled = true;
+    for (let i = 0; i < ProbeLog.capacity + 5; i++) log.push(o, i, 0, 0, ProbeKind.miss);
+    expect(log.count).toBe(ProbeLog.capacity);
+    expect(Array.from(log.data.slice(0, 7))).toEqual([0, 1, 2, 0, 0, 0, ProbeKind.miss]);
+    const rev = log.revision;
+    log.clear();
+    expect(log.count).toBe(0);
+    expect(log.revision).toBeGreaterThan(rev);
   });
 });

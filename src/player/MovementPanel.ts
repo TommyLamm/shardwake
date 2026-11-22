@@ -1,4 +1,4 @@
-// 調參面板「移動」資料夾：綁定 MovementConfig 的所有參數，並監看速度曲線、狀態、著地與地面法線。
+// 調參面板「移動」資料夾：綁定 MovementConfig 的所有參數，並監看速度曲線、狀態、著地、地面法線、跑牆與攀爬。
 import { SystemOrder, type GameSystem } from '@/core/Game';
 import type { DebugPanel } from '@/debug/DebugPanel';
 import { MOVEMENT_PANEL } from '@/player/MovementConfig';
@@ -18,6 +18,9 @@ export interface MovementMonitor {
   slideBoostReady: string;
   lastTransition: string;
   position: string;
+  wallRun: string;
+  wallSensor: string;
+  mantle: string;
 }
 
 /**
@@ -39,6 +42,9 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
     slideBoostReady: '',
     lastTransition: '',
     position: '',
+    wallRun: '',
+    wallSensor: '',
+    mantle: '',
   };
   panel.bindConfig(
     '移動/監看',
@@ -56,6 +62,9 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
       slideBoostReady: { label: '滑鏟推進', readonly: true },
       lastTransition: { label: '最近轉換', readonly: true },
       position: { label: '腳底位置', readonly: true },
+      wallRun: { label: '跑牆', readonly: true },
+      wallSensor: { label: '側牆偵測', readonly: true },
+      mantle: { label: '攀爬', readonly: true },
     },
     { expanded: true },
   );
@@ -80,6 +89,11 @@ export function bindMovementPanel(panel: DebugPanel, player: PlayerController): 
       m.lastTransition = player.machine.lastTransition;
       const p = s.position;
       m.position = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
+      m.wallRun = s.wallRunSide ? `${s.wallRunSide === 'left' ? '左' : '右'}牆 ${player.wallRunTime.toFixed(2)} s` : '—';
+      const w = player.walls;
+      const side = (c: typeof w.left): string => (c.found ? `${c.runnable ? '可跑' : '不可跑'} ${c.distance.toFixed(2)} m` : '—');
+      m.wallSensor = `左 ${side(w.left)}／右 ${side(w.right)}`;
+      m.mantle = s.mantleProgress > 0 ? `攀爬中 ${Math.round(s.mantleProgress * 100)}%（${player.mantle.height.toFixed(2)} m）` : '—';
     },
   };
 }

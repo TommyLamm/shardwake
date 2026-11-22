@@ -1,14 +1,20 @@
-// 玩家控制器（M1-05）：膠囊體＋Rapier KinematicCharacterController＋可擴充的移動狀態機。
+// 玩家控制器（M1-05；M1-06 加入跑牆、蹬牆跳、攀爬）：膠囊體＋Rapier KinematicCharacterController＋可擴充的移動狀態機。
 //
 // 每個固定步（fixedUpdate → step）：
-//   1. 讀 InputFrame：期望方向（依 yaw）、蹲／跳／衝刺／開火／開鏡；更新跳躍緩衝。
+//   1. 讀 InputFrame：期望方向（依 yaw）、視線水平方向、蹲／跳／衝刺／開火／開鏡；更新跳躍緩衝。
 //   2. 姿勢：蹲下／起身（膠囊高度在 crouchTransitionTime 內線性過渡，腳底固定；起身前 overlap 檢查頭頂空間）。
 //   3. 狀態機 'pre' 轉換 → 目前狀態 step（只改速度）。
 //   4. 移動：期望位移 = 速度 × dt（重力以梯形積分修正）→ computeColliderMovement → 依實際碰撞法線投影速度
 //      （只有「真的被擋住」的分量才移除：撞牆不累積速度、沿牆滑行；自動上台階不會被擋速）。
+//      移動前的速度另存在 preMoveVelocity（跑牆／攀爬的進入條件與保留速度用）。
 //   5. 地面探測：向下 shape cast（球），取得地面法線、距離與表面材質。
-//   6. 落地事件 → 狀態機 'post' 轉換 → 腳步事件 → killVolume 重生。
-// 速度自己維護（不用 Rapier 剛體）；切換狀態永不硬性歸零速度（只有重生會歸零）。
+//   6. 牆面偵測（WallSensor）：空中掃描左右側牆；跑牆中追蹤目前的牆。攀爬的前方／邊緣偵測在轉換規則需要時才做。
+//   7. 落地事件與空中能力重置 → 狀態機 'post' 轉換 → 腳步事件 → killVolume 重生。
+// 速度自己維護（不用 Rapier 剛體）；切換狀態不硬性歸零速度（只有重生會歸零；跑牆進入與攀爬結束依計畫改寫速度）。
+//
+// 狀態與轉換規則：states.ts（地面、空中、滑鏟）、wallStates.ts（跑牆、攀爬）。
+// 優先序（MovePriority）：Mantle > Grapple > Dash > WallRun > Slide > Air／Ground（Grapple、Dash 在 M1-07）。
+// 空中能力重置：resetAirAbilities(reason)（著地、開始跑牆、重生；M1-07 的抓鉤也呼叫）→ onAirReset 監聽者與 `player:airReset`。
 //
 // 座標：position 是腳底（膠囊底部）位置；眼睛 = position + eyeHeight。yaw 0 面向 -Z、正值向左（M1-03）。
 // 物理世界重建（physics.generation 改變）時自動重建膠囊與角色控制器。
@@ -27,6 +33,8 @@ import { MOVEMENT_CONFIG, type MovementConfig } from '@/player/MovementConfig';
 import { clipVelocity, horizontalSpeed, inputAngleFromForward, jumpSpeedFor, wishDirection } from '@/player/movementMath';
 import { StateMachine } from '@/player/StateMachine';
 import { MoveStateId, registerCoreMovement } from '@/player/states';
+import { angleToWallTangent, registerWallMovement, type WallRunEndReason } from '@/player/wallStates';
+import { WallSensor, makeMantlePlan, type MantlePlan, type WallContact } from '@/player/WallSensor';
 
 /** 給鏡頭、HUD、音效、武器讀取的玩家狀態（每步更新，同一個物件）。 */
 export interface PlayerState {
@@ -52,7 +60,16 @@ export interface PlayerState {
   surface: SurfaceType | null;
   /** 水平速度（m/s）。 */
   speed: number;
+  /** 跑牆中牆在哪一側（相對行進方向）；不在跑牆時為 null（M1-08 鏡頭傾斜、M1-11 viewmodel 用）。 */
+  wallRunSide: 'left' | 'right' | null;
+  /** 跑牆中的牆面法線（水平、朝牆外）；不在跑牆時為零向量。 */
+  readonly wallNormal: THREE.Vector3;
+  /** 攀爬進度 0..1（不在攀爬時為 0）。 */
+  mantleProgress: number;
 }
+
+/** 空中能力重置的原因。 */
+export type AirResetReason = 'land' | 'wallRun' | 'grapple' | 'respawn';
 
 /** 玩家相關設定（Settings 的子集）。 */
 export interface PlayerSettings {
@@ -110,6 +127,10 @@ const NORMAL_RAY_EXTRA = 0.1;
 const NORMAL_REFINE_MIN_DOT = 0.5;
 /** 離地超過 skinOffset × 此倍率才貼地（間隙內的微小距離不處理，平地不抖動）。 */
 const SNAP_MIN_OFFSET_RATIO = 2;
+/** 進入跑牆：速度朝牆外的分量（單位方向與法線的內積）超過此值時不貼（正在離開這面牆）。 */
+const WALL_RUN_MAX_AWAY = 0.17;
+/** 同一面牆的判斷：同一個碰撞體且法線內積大於此值。 */
+const SAME_WALL_MIN_DOT = 0.9;
 
 const _desired = { x: 0, y: 0, z: 0 };
 const _center = { x: 0, y: 0, z: 0 };
@@ -172,6 +193,54 @@ export class PlayerController implements GameSystem {
   private gravityThisStep = 0;
   private footstepAccum = 0;
 
+  // ── 跑牆／蹬牆跳／攀爬（M1-06）──
+  readonly walls: WallSensor;
+  /** 本步移動（碰撞投影）前的速度。 */
+  readonly preMoveVelocity = new THREE.Vector3();
+  /** 視線的水平方向（單位向量）。 */
+  readonly forward = { x: 0, z: -1 };
+  /** 累計模擬時間（s）。 */
+  simTime = 0;
+  /** 跑牆中的牆面法線（水平、朝牆外）與碰撞體 handle。 */
+  readonly wallNormal = new THREE.Vector3();
+  /** 開始跑牆時的牆面法線（追蹤時限制總轉角，不會繞過牆端）。 */
+  readonly wallStartNormal = new THREE.Vector3();
+  wallHandle = -1;
+  /** 跑牆中牆在哪一側（相對進入時的行進方向）。 */
+  wallSide: 'left' | 'right' | null = null;
+  /** 這次跑牆經過的時間（s）。 */
+  wallRunTime = 0;
+  /** 這一步追蹤牆面是否成功（跑牆中）。 */
+  wallTracked = false;
+  /** 這一步是否蹬牆跳。 */
+  wallJumpedThisStep = false;
+  /** checkWallRunEnd() 判定的結束原因（WallRun.exit 讀取）。 */
+  wallRunEndReason: WallRunEndReason | null = null;
+  /** findLedge 的結果（canMantle 成功時有效）。 */
+  readonly mantlePlan: MantlePlan = makeMantlePlan();
+  /** 進行中的攀爬。 */
+  readonly mantle = {
+    start: new THREE.Vector3(),
+    target: new THREE.Vector3(),
+    dir: new THREE.Vector3(0, 0, -1),
+    height: 0,
+    duration: 0,
+    time: 0,
+    done: false,
+    /** 進入前的水平速度（結束時依比例保留）。 */
+    entrySpeed: 0,
+  };
+  /** canWallRun() 選出的牆（WallRun.enter 使用）。 */
+  private wallCandidate: WallContact | null = null;
+  /** 最近離開的牆（同牆重貼冷卻；著地後清除）。 */
+  private lastWallHandle = -1;
+  private readonly lastWallNormal = new THREE.Vector3();
+  private lastWallLeftAt = Number.NEGATIVE_INFINITY;
+  /** 離牆後的蹬牆跳寬限（到這個模擬時間為止）與當時的牆面法線。 */
+  private wallJumpGraceUntil = Number.NEGATIVE_INFINITY;
+  private readonly graceNormal = new THREE.Vector3();
+  private readonly airResetListeners = new Set<(reason: AirResetReason) => void>();
+
   private readonly options: PlayerControllerOptions;
   private collider: RAPIER.Collider | null = null;
   private controller: RAPIER.KinematicCharacterController | null = null;
@@ -193,6 +262,14 @@ export class PlayerController implements GameSystem {
   private readonly evCrouch = { crouched: false };
   private readonly evFootstep = { surface: 'metal', speed: 0 };
   private readonly evRespawn = { pos: { x: 0, y: 0, z: 0 } };
+  private readonly evWallRunStart: { side: 'left' | 'right'; normal: { x: number; y: number; z: number } } = {
+    side: 'left',
+    normal: { x: 0, y: 0, z: 0 },
+  };
+  private readonly evWallRunEnd = { reason: '', duration: 0 };
+  private readonly evWallJump = { normal: { x: 0, y: 0, z: 0 }, speed: 0, grace: false };
+  private readonly evMantle = { height: 0, duration: 0, fromState: '' };
+  private readonly evAirReset: { reason: AirResetReason } = { reason: 'land' };
 
   constructor(options: PlayerControllerOptions) {
     this.options = options;
@@ -211,7 +288,11 @@ export class PlayerController implements GameSystem {
       groundNormal: this.groundNormal,
       surface: null,
       speed: 0,
+      wallRunSide: null,
+      wallNormal: new THREE.Vector3(),
+      mantleProgress: 0,
     };
+    this.walls = new WallSensor(options.physics, this);
     this.machine = new StateMachine<PlayerController>(this, (from, to) => {
       this.evState.from = from;
       this.evState.to = to;
@@ -219,6 +300,7 @@ export class PlayerController implements GameSystem {
       this.options.bus?.emit('player:state', this.evState);
     });
     registerCoreMovement(this.machine);
+    registerWallMovement(this.machine);
     this.machine.set(MoveStateId.air);
   }
 
@@ -258,6 +340,8 @@ export class PlayerController implements GameSystem {
     this.applyPosture();
     this.syncColliderToFeet();
     this.machine.set(MoveStateId.air, true);
+    this.clearWallState();
+    this.resetAirAbilities('respawn');
     this.state.state = this.machine.currentId;
     this.publishState();
     this.state.previousEyeHeight = this.state.eyeHeight;
@@ -310,8 +394,11 @@ export class PlayerController implements GameSystem {
     s.previousPosition.copy(this.position);
     s.previousEyeHeight = s.eyeHeight;
     this.jumpedThisStep = false;
+    this.wallJumpedThisStep = false;
     this.gravityThisStep = 0;
     this.slideBoostTimer += dt;
+    this.simTime += dt;
+    this.walls.log.clear();
 
     this.readInput(dt);
     this.updatePosture(dt);
@@ -319,14 +406,23 @@ export class PlayerController implements GameSystem {
     this.machine.step(dt);
     const wasGrounded = this.grounded;
     const fallSpeed = Math.max(0, -this.velocity.y);
+    this.preMoveVelocity.copy(this.velocity);
     const moved = this.move(dt);
     this.probeGround();
+    this.updateWallSensing();
     if (this.grounded && !wasGrounded) {
-      this.evLand.impactSpeed = fallSpeed;
-      this.evLand.surface = this.surface ?? 'metal';
-      this.options.bus?.emit('player:land', this.evLand);
+      // 攀爬結束時站上邊緣不算落地（不發落地事件，攀爬有自己的事件）。
+      if (!this.machine.is(MoveStateId.mantle)) {
+        this.evLand.impactSpeed = fallSpeed;
+        this.evLand.surface = this.surface ?? 'metal';
+        this.options.bus?.emit('player:land', this.evLand);
+      }
       // 落地時腳步計數從半步開始（落地後很快就有第一步）。
       this.footstepAccum = this.config.footstepStride * 0.5;
+      // 著地：同牆重貼冷卻與蹬牆跳寬限重置，空中能力重置。
+      this.lastWallHandle = -1;
+      this.wallJumpGraceUntil = Number.NEGATIVE_INFINITY;
+      this.resetAirAbilities('land');
     }
     this.machine.evaluate('post');
     this.updateFootsteps(moved);
@@ -375,9 +471,11 @@ export class PlayerController implements GameSystem {
     return true;
   }
 
-  /** 套用重力（半隱式＋梯形位移修正，跳躍高度與步長無關）並限制最大下落速度。 */
-  applyGravity(dt: number): void {
-    const g = this.config.gravity;
+  /**
+   * 套用重力（半隱式＋梯形位移修正，跳躍高度與步長無關）並限制最大下落速度。
+   * g 省略時為玩家重力；跑牆傳入依曲線計算的重力。
+   */
+  applyGravity(dt: number, g: number = this.config.gravity): void {
     this.velocity.y = Math.max(this.velocity.y - g * dt, -this.config.maxFallSpeed);
     this.gravityThisStep = g;
   }
@@ -395,6 +493,11 @@ export class PlayerController implements GameSystem {
 
   /** 以目前膠囊（站姿尺寸）檢查頭頂是否有起身空間。 */
   hasHeadroom(): boolean {
+    return this.standingCapsuleFits(this.position.x, this.position.y, this.position.z);
+  }
+
+  /** 站姿膠囊（半徑內縮、底部抬高少許）放在腳底 (x, feetY, z) 時是否不與世界重疊。 */
+  standingCapsuleFits(x: number, feetY: number, z: number): boolean {
     const cfg = this.config;
     const r = Math.max(0.01, cfg.radius - HEADROOM_SHRINK);
     const hh = Math.max(0, cfg.standHeight / 2 - cfg.radius);
@@ -403,9 +506,9 @@ export class PlayerController implements GameSystem {
       this.headroomShape = new RAPIER.Capsule(hh, r);
       this.headroomKey = key;
     }
-    _center.x = this.position.x;
-    _center.y = this.position.y + HEADROOM_LIFT + HEADROOM_SHRINK + hh + r;
-    _center.z = this.position.z;
+    _center.x = x;
+    _center.y = feetY + HEADROOM_LIFT + HEADROOM_SHRINK + hh + r;
+    _center.z = z;
     const n = this.options.physics.overlap(
       this.headroomShape,
       _center,
@@ -416,6 +519,291 @@ export class PlayerController implements GameSystem {
       RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
     );
     return n === 0;
+  }
+
+  // ── 空中能力重置（M1-06；跑牆、著地、抓鉤共用）─────────
+
+  /** 監聽空中能力重置（M1-07 的二段跳次數、噴射燃料）；回傳取消函式。 */
+  onAirReset(listener: (reason: AirResetReason) => void): () => void {
+    this.airResetListeners.add(listener);
+    return () => this.airResetListeners.delete(listener);
+  }
+
+  /** 重置空中能力：通知監聽者並發出 `player:airReset`。 */
+  resetAirAbilities(reason: AirResetReason): void {
+    for (const l of this.airResetListeners) l(reason);
+    this.evAirReset.reason = reason;
+    this.options.bus?.emit('player:airReset', this.evAirReset);
+  }
+
+  // ── 跑牆／蹬牆跳（M1-06）────────────────────────────────
+
+  /**
+   * 進入跑牆的條件（空中、post 階段）：按住前進、沒按蹲；移動前的水平速度 ≥ wallRunMinSpeed；
+   * 側面有可跑的牆，速度方向與牆面切線夾角 < wallRunMaxAngleDeg 且沒有正在離開這面牆；
+   * 不是 wallRunSameWallCooldown 內剛離開的同一面牆；離地 ≥ wallRunMinHeight。
+   */
+  canWallRun(): boolean {
+    const cfg = this.config;
+    const inp = this.input;
+    if (this.grounded || inp.moveY <= 0 || inp.crouchHeld) return false;
+    const pv = this.preMoveVelocity;
+    const hs = Math.hypot(pv.x, pv.z);
+    if (hs < cfg.wallRunMinSpeed || hs < 1e-6) return false;
+    const dx = pv.x / hs;
+    const dz = pv.z / hs;
+    const { left, right } = this.walls;
+    const okLeft = this.wallUsable(left, dx, dz);
+    const okRight = this.wallUsable(right, dx, dz);
+    let best: WallContact | null = null;
+    if (okLeft && okRight) best = left.distance <= right.distance ? left : right;
+    else if (okLeft) best = left;
+    else if (okRight) best = right;
+    if (!best) return false;
+    if (cfg.wallRunMinHeight > 0) {
+      const hit = this.castGround(cfg.wallRunMinHeight);
+      if (hit && hit.distance - PROBE_LIFT < cfg.wallRunMinHeight) return false;
+    }
+    this.wallCandidate = best;
+    return true;
+  }
+
+  private wallUsable(w: WallContact, dx: number, dz: number): boolean {
+    if (!w.found || !w.runnable) return false;
+    const n = w.normal;
+    if (dx * n.x + dz * n.z > WALL_RUN_MAX_AWAY) return false;
+    if (angleToWallTangent(dx, dz, n.x, n.z) >= this.config.wallRunMaxAngleDeg * DEG2RAD) return false;
+    return !this.isRecentWall(w.handle, n);
+  }
+
+  /** 是否為 wallRunSameWallCooldown 內剛離開的同一面牆（著地後清除）。 */
+  isRecentWall(handle: number, normal: Readonly<THREE.Vector3>): boolean {
+    if (handle !== this.lastWallHandle) return false;
+    if (normal.dot(this.lastWallNormal) <= SAME_WALL_MIN_DOT) return false;
+    return this.simTime - this.lastWallLeftAt < this.config.wallRunSameWallCooldown - 1e-9;
+  }
+
+  /** WallRun.enter：速度投影到牆面切線（至少 wallRunEntrySpeed）、限制垂直速度、重置空中能力。 */
+  beginWallRun(): void {
+    const cfg = this.config;
+    const w = this.wallCandidate ?? (this.walls.left.runnable ? this.walls.left : this.walls.right);
+    const n = this.wallNormal.copy(w.normal);
+    this.wallStartNormal.copy(n);
+    this.wallHandle = w.handle;
+    this.wallTracked = true;
+    this.wallCandidate = null;
+    const pv = this.preMoveVelocity;
+    const v = this.velocity;
+    let hx = pv.x;
+    let hz = pv.z;
+    if (Math.hypot(hx, hz) < 1e-6) {
+      hx = this.forward.x;
+      hz = this.forward.z;
+    }
+    // 牆在行進方向的哪一側：右 = (−dz, dx)，牆的方向 = −n。
+    this.wallSide = -n.x * -hz + -n.z * hx > 0 ? 'right' : 'left';
+    const vn = hx * n.x + hz * n.z;
+    let tx = hx - n.x * vn;
+    let tz = hz - n.z * vn;
+    const along = Math.hypot(tx, tz);
+    if (along < 1e-6) {
+      // 正面撞牆（夾角條件應已排除）：改用視線方向的切線。
+      const fn = this.forward.x * n.x + this.forward.z * n.z;
+      tx = this.forward.x - n.x * fn;
+      tz = this.forward.z - n.z * fn;
+    }
+    const tl = Math.max(1e-6, Math.hypot(tx, tz));
+    const speed = Math.max(along, cfg.wallRunEntrySpeed);
+    v.x = (tx / tl) * speed;
+    v.z = (tz / tl) * speed;
+    v.y = Math.min(cfg.wallRunMaxRiseSpeed, Math.max(-cfg.wallRunMaxEntryFallSpeed, v.y));
+    this.wallRunTime = 0;
+    this.wallRunEndReason = null;
+    this.wallJumpGraceUntil = Number.NEGATIVE_INFINITY;
+    this.coyoteAvailable = false;
+    const ev = this.evWallRunStart;
+    ev.side = this.wallSide;
+    ev.normal.x = n.x;
+    ev.normal.y = n.y;
+    ev.normal.z = n.z;
+    this.options.bus?.emit('player:wallRunStart', ev);
+    this.resetAirAbilities('wallRun');
+  }
+
+  /** 跑牆是否該結束（post 階段）；回傳原因並記錄在 wallRunEndReason。 */
+  checkWallRunEnd(): WallRunEndReason | null {
+    const cfg = this.config;
+    const inp = this.input;
+    let r: WallRunEndReason | null = null;
+    if (this.wallJumpedThisStep) r = 'jump';
+    else if (inp.crouchHeld) r = 'crouch';
+    else if (inp.moveY <= 0) r = 'released';
+    else if (!this.wallTracked) r = 'wallEnded';
+    else if (horizontalSpeed(this.velocity) < cfg.wallRunEndSpeed) r = 'slow';
+    else if (this.wallRunTime >= cfg.wallRunMaxTime - 1e-9) r = 'timeout';
+    this.wallRunEndReason = r;
+    return r;
+  }
+
+  /** WallRun.exit：發出事件、記住離開的牆（同牆重貼冷卻）；grace 時開始蹬牆跳寬限。 */
+  endWallRun(reason: WallRunEndReason, grace: boolean): void {
+    const cfg = this.config;
+    this.evWallRunEnd.reason = reason;
+    this.evWallRunEnd.duration = this.wallRunTime;
+    this.options.bus?.emit('player:wallRunEnd', this.evWallRunEnd);
+    this.lastWallHandle = this.wallHandle;
+    this.lastWallNormal.copy(this.wallNormal);
+    this.lastWallLeftAt = this.simTime;
+    if (grace && cfg.wallJumpGraceTime > 0) {
+      this.wallJumpGraceUntil = this.simTime + cfg.wallJumpGraceTime;
+      this.graceNormal.copy(this.wallNormal);
+    }
+    this.wallSide = null;
+    this.wallRunEndReason = null;
+  }
+
+  /**
+   * 蹬牆跳：速度 = 沿牆分量 × wallJumpAlongScale ＋ 牆面法線 × wallJumpNormalSpeed ＋ 上方 × wallJumpUpSpeed；
+   * 視線離開牆面（視線與法線同向）時，水平方向再往視線偏轉（權重 wallJumpLookInfluence × 離開程度），水平速率不變。
+   */
+  wallJump(normal: Readonly<THREE.Vector3>, grace: boolean): void {
+    const cfg = this.config;
+    const v = this.velocity;
+    const nx = normal.x;
+    const nz = normal.z;
+    const vn = v.x * nx + v.z * nz;
+    let hx = (v.x - nx * vn) * cfg.wallJumpAlongScale + nx * cfg.wallJumpNormalSpeed;
+    let hz = (v.z - nz * vn) * cfg.wallJumpAlongScale + nz * cfg.wallJumpNormalSpeed;
+    const hl = Math.hypot(hx, hz);
+    const look = this.forward.x * nx + this.forward.z * nz;
+    const w = Math.min(1, Math.max(0, cfg.wallJumpLookInfluence)) * Math.max(0, look);
+    if (w > 0 && hl > 1e-6) {
+      const dx = (hx / hl) * (1 - w) + this.forward.x * w;
+      const dz = (hz / hl) * (1 - w) + this.forward.z * w;
+      const dl = Math.hypot(dx, dz);
+      if (dl > 1e-6) {
+        hx = (dx / dl) * hl;
+        hz = (dz / dl) * hl;
+      }
+    }
+    v.set(hx, cfg.wallJumpUpSpeed, hz);
+    this.jumpedThisStep = true;
+    this.wallJumpedThisStep = true;
+    this.grounded = false;
+    this.coyoteAvailable = false;
+    this.wallJumpGraceUntil = Number.NEGATIVE_INFINITY;
+    this.lastWallLeftAt = this.simTime;
+    const ev = this.evWallJump;
+    ev.normal.x = nx;
+    ev.normal.y = 0;
+    ev.normal.z = nz;
+    ev.speed = hl;
+    ev.grace = grace;
+    this.options.bus?.emit('player:wallJump', ev);
+  }
+
+  /** 空中：跑牆剛結束的寬限時間內按跳 → 蹬牆跳（AirState 呼叫）。 */
+  tryWallJumpGrace(): boolean {
+    if (this.simTime > this.wallJumpGraceUntil + 1e-9) return false;
+    if (!this.jumpBuffer.consume()) return false;
+    this.wallJump(this.graceNormal, true);
+    return true;
+  }
+
+  // ── 攀爬（M1-06）──────────────────────────────────────
+
+  /**
+   * 是否可以攀爬：fromGround（pre 階段，地面或滑鏟中按跳）只要著地；
+   * 空中（post 階段）要按住前進、未著地、上升速度 < mantleMaxRiseSpeed。
+   * 之後由 WallSensor.findLedge 檢查正面牆與邊緣；成功時 mantlePlan 有效。
+   */
+  canMantle(fromGround: boolean): boolean {
+    const cfg = this.config;
+    if (cfg.mantleDuration <= 0) return false;
+    if (fromGround) {
+      if (!this.grounded) return false;
+    } else if (this.grounded || this.input.moveY <= 0 || this.velocity.y >= cfg.mantleMaxRiseSpeed) return false;
+    return this.walls.findLedge(this.forward.x, this.forward.z, this.mantlePlan);
+  }
+
+  /** Mantle.enter：記錄路徑與進入前水平速度；從地面觸發時消耗跳躍緩衝。 */
+  beginMantle(prev: string | null): void {
+    const cfg = this.config;
+    const m = this.mantle;
+    const plan = this.mantlePlan;
+    m.start.copy(this.position);
+    m.target.copy(plan.target);
+    m.dir.copy(plan.dir);
+    m.height = plan.height;
+    m.duration = cfg.mantleDuration;
+    m.time = 0;
+    m.done = false;
+    m.entrySpeed = Math.max(horizontalSpeed(this.preMoveVelocity), horizontalSpeed(this.velocity));
+    if (prev === MoveStateId.ground || prev === MoveStateId.slide) this.jumpBuffer.consume();
+    this.coyoteAvailable = false;
+    const ev = this.evMantle;
+    ev.height = m.height;
+    ev.duration = m.duration;
+    ev.fromState = prev ?? '';
+    this.options.bus?.emit('player:mantle', ev);
+  }
+
+  /** Mantle.exit：動作完成時，水平速度 = 進入前 × mantleExitSpeedKeep（至少 mantleExitMinSpeed）向前；被打斷時不改速度。 */
+  endMantle(): void {
+    const m = this.mantle;
+    if (!m.done) return;
+    const cfg = this.config;
+    const speed = Math.max(m.entrySpeed * cfg.mantleExitSpeedKeep, cfg.mantleExitMinSpeed);
+    this.velocity.set(m.dir.x * speed, 0, m.dir.z * speed);
+  }
+
+  /**
+   * 空中撞到牆（速度被投影）時：撞擊方向與牆面切線的夾角 ≥ wallRunMaxAngleDeg，就把這面牆當成「剛離開的牆」，
+   * 同牆重貼冷卻內不會因為投影後剩下的沿牆速度而進入跑牆（大角度撞牆不跑牆）。
+   */
+  private noteWallImpact(handle: number, n: Readonly<Vec3Like>): void {
+    const cfg = this.config;
+    if (handle < 0 || Math.abs(n.y) >= cfg.wallMaxNormalY) return;
+    const hl = Math.hypot(n.x, n.z);
+    const v = this.preMoveVelocity;
+    const hs = Math.hypot(v.x, v.z);
+    if (hl < 1e-6 || hs < 1e-6) return;
+    const nx = n.x / hl;
+    const nz = n.z / hl;
+    if (angleToWallTangent(v.x / hs, v.z / hs, nx, nz) < cfg.wallRunMaxAngleDeg * DEG2RAD) return;
+    this.lastWallHandle = handle;
+    this.lastWallNormal.set(nx, 0, nz);
+    this.lastWallLeftAt = this.simTime;
+  }
+
+  /** 傳送後清除跑牆／攀爬的狀態與記憶。 */
+  private clearWallState(): void {
+    this.wallSide = null;
+    this.wallRunTime = 0;
+    this.wallTracked = false;
+    this.wallRunEndReason = null;
+    this.wallCandidate = null;
+    this.lastWallHandle = -1;
+    this.lastWallLeftAt = Number.NEGATIVE_INFINITY;
+    this.wallJumpGraceUntil = Number.NEGATIVE_INFINITY;
+    this.mantle.done = false;
+    this.mantle.time = 0;
+    this.walls.clearSides();
+  }
+
+  /** 移動後的牆面偵測：空中掃描左右側牆；跑牆中追蹤目前的牆。 */
+  private updateWallSensing(): void {
+    const id = this.machine.currentId;
+    if (id === MoveStateId.air && !this.grounded) {
+      this.walls.scanSides(this.preMoveVelocity.x, this.preMoveVelocity.z);
+    } else this.walls.clearSides();
+    if (id === MoveStateId.wallRun && !this.wallJumpedThisStep) {
+      this.wallTracked = this.walls.track(this.wallNormal, this.wallStartNormal);
+      if (this.wallTracked) {
+        this.wallNormal.copy(this.walls.tracked.normal);
+        this.wallHandle = this.walls.tracked.handle;
+      }
+    }
   }
 
   // ── 內部 ───────────────────────────────────────────────
@@ -432,6 +820,8 @@ export class PlayerController implements GameSystem {
     inp.adsHeld = isHeld(f, 'ads');
     inp.jumpPressed = wasPressed(f, 'jump');
     this.jumpBuffer.updateFrom(dt, f, 'jump');
+    this.forward.x = -Math.sin(f.yaw);
+    this.forward.z = -Math.cos(f.yaw);
     const w = this.wish;
     wishDirection(f.move.x, f.move.y, f.yaw, w);
     const len = Math.hypot(w.x, w.z);
@@ -532,6 +922,7 @@ export class PlayerController implements GameSystem {
     const cfg = this.config;
     const walkableCos = Math.cos(cfg.maxSlopeClimbDeg * DEG2RAD);
     const feetBeforeY = this.state.previousPosition.y;
+    const inAir = this.machine.is(MoveStateId.air);
     const count = kcc.numComputedCollisions();
     for (let i = 0; i < count; i++) {
       const c = kcc.computedCollision(i, this.collision);
@@ -543,7 +934,10 @@ export class PlayerController implements GameSystem {
       if (onGround && cfg.autostepHeight > 0 && c.witness1.y - feetBeforeY <= cfg.autostepHeight + STEP_CONTACT_MARGIN) continue;
       const intoDesired = -(_desired.x * n.x + _desired.y * n.y + _desired.z * n.z);
       const intoActual = -(m.x * n.x + m.y * n.y + m.z * n.z);
-      if (intoDesired - intoActual > BLOCK_EPS) clipVelocity(v, n.x, n.y, n.z);
+      if (intoDesired - intoActual > BLOCK_EPS) {
+        if (inAir) this.noteWallImpact(c.collider?.handle ?? -1, n);
+        clipVelocity(v, n.x, n.y, n.z);
+      }
     }
     const horizontal = Math.hypot(m.x, m.z);
     if (onGround) this.snapDown();
@@ -678,6 +1072,12 @@ export class PlayerController implements GameSystem {
     s.crouched = this.crouchTarget;
     s.surface = this.surface;
     s.speed = horizontalSpeed(this.velocity);
+    const wallRunning = this.machine.is(MoveStateId.wallRun);
+    s.wallRunSide = wallRunning ? this.wallSide : null;
+    if (wallRunning) s.wallNormal.copy(this.wallNormal);
+    else s.wallNormal.set(0, 0, 0);
+    const m = this.mantle;
+    s.mantleProgress = this.machine.is(MoveStateId.mantle) ? Math.min(1, m.time / Math.max(1e-3, m.duration)) : 0;
   }
 
   private placeObject(alpha: number): void {
