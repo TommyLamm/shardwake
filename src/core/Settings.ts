@@ -30,6 +30,18 @@ export interface Settings {
   autoSprint: boolean;
   /** 水平 FOV（度），依畫面比例換算成垂直 FOV。 */
   fovHorizontal: number;
+  /** 動態 FOV（速度、Dash、抓鉤時放大視野；M1-08）。 */
+  dynamicFov: boolean;
+  /** 鏡頭傾斜（roll）強度 0–1：跑牆、滑鏟、側移、側向 Dash（M1-08）。 */
+  cameraTilt: number;
+  /** 落地下沉與點頭（M1-08）。 */
+  landingDip: boolean;
+  /** 頭部晃動（M1-08）。 */
+  headBob: boolean;
+  /** 畫面震動強度 0–1（M1-08，開火、爆炸、重落地、受擊）。 */
+  screenShake: number;
+  /** 高速時的速度線（M1-08）。 */
+  speedLines: boolean;
   /** 主音量 0–1（M1-13 使用）。 */
   masterVolume: number;
   /** 音效音量 0–1。 */
@@ -59,6 +71,12 @@ export const SETTINGS_SCHEMA = {
   grappleMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '抓鉤' },
   autoSprint: { type: 'boolean', default: true, label: '自動衝刺' },
   fovHorizontal: { type: 'number', default: 103, min: 80, max: 120, step: 1, label: '視野（水平 FOV）' },
+  dynamicFov: { type: 'boolean', default: true, label: '動態視野' },
+  cameraTilt: { type: 'number', default: 1, min: 0, max: 1, step: 0.05, label: '鏡頭傾斜強度' },
+  landingDip: { type: 'boolean', default: true, label: '落地下沉' },
+  headBob: { type: 'boolean', default: true, label: '頭部晃動' },
+  screenShake: { type: 'number', default: 1, min: 0, max: 1, step: 0.05, label: '畫面震動強度' },
+  speedLines: { type: 'boolean', default: true, label: '速度線' },
   masterVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '主音量' },
   sfxVolume: { type: 'number', default: 1, min: 0, max: 1, step: 0.01, label: '音效音量' },
   uiVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '介面音量' },

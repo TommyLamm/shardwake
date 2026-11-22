@@ -1,16 +1,17 @@
 // 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬；
-// M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）。
+// M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
-// 相機暫時直接放在玩家插值後的眼睛位置（正式鏡頭在 M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
+// 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
 import * as THREE from 'three';
+import { bindCameraPanel } from '@/camera/CameraPanel';
+import { CameraRig } from '@/camera/CameraRig';
 import { FREE_CAMERA_CONFIG, FreeCamera } from '@/camera/FreeCamera';
 import { LOOP_CONFIG, VIEWPORT_CONFIG } from '@/core/config';
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents, GameMode } from '@/core/events';
 import { Game, SystemOrder, type GameSystem } from '@/core/Game';
 import { Lifecycle } from '@/core/Lifecycle';
-import { horizontalToVerticalFov } from '@/core/math';
 import { QUALITY_PRESETS, SETTINGS_SCHEMA, SettingsStore, type Settings, type SettingsKey } from '@/core/Settings';
 import { GameStorage } from '@/core/Storage';
 import { Viewport } from '@/core/Viewport';
@@ -21,9 +22,10 @@ import { Bindings } from '@/input/Bindings';
 import { INPUT_CONFIG } from '@/input/config';
 import { InputSystem } from '@/input/Input';
 import { LockFlow } from '@/input/LockFlow';
-import { cmPer360, type ViewAngles } from '@/input/Mouse';
+import { cmPer360 } from '@/input/Mouse';
 import { PointerLock } from '@/input/PointerLock';
 import { GrappleRope } from '@/fx/GrappleRope';
+import { SpeedLines } from '@/fx/SpeedLines';
 import { PHYSICS_CONFIG } from '@/physics/config';
 import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
@@ -67,17 +69,6 @@ function renderSystem(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera:
   };
 }
 
-/** 暫時的鏡頭：每個渲染畫面直接套用滑鼠視角（不插值、不平滑；位置由玩家或自由相機設定；M1-08 換成正式鏡頭）。 */
-function cameraSystem(camera: THREE.Camera, view: ViewAngles): GameSystem {
-  return {
-    name: 'camera',
-    order: SystemOrder.camera,
-    render() {
-      camera.rotation.set(view.viewPitch, view.viewYaw, 0, 'YXZ');
-    },
-  };
-}
-
 /** 把設定欄位規格轉成調參面板規格。 */
 function settingsPanelSchema(): ConfigSchema<Settings> {
   const out: Partial<Record<SettingsKey, ParamSpec>> = {};
@@ -110,11 +101,8 @@ async function boot(): Promise<void> {
   renderer.setClearColor(GREYBOX_CONFIG.clearColor);
   app.appendChild(renderer.domElement);
 
+  // FOV 由 CameraRig 每畫面依設定的水平 FOV 與畫面比例設定（M1-08）。
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 600);
-  const applyFov = (): void => {
-    camera.fov = horizontalToVerticalFov(settings.get('fovHorizontal'), camera.aspect);
-    camera.updateProjectionMatrix();
-  };
 
   const viewport = new Viewport({
     container: app,
@@ -124,8 +112,6 @@ async function boot(): Promise<void> {
     renderScale: settings.qualityPreset.renderScale,
   });
   viewport.addCamera(camera);
-  viewport.onResize(applyFov);
-  applyFov();
 
   const stats = new StatsOverlay({ container: app, visible: settings.get('showFps') });
   // ` 鍵改由輸入系統的 debugPanel 動作切換（可重新綁定）。
@@ -168,7 +154,6 @@ async function boot(): Promise<void> {
 
   settings.onChange((s, changed) => {
     if (changed.includes('quality')) viewport.setRenderScale(QUALITY_PRESETS[s.quality].renderScale);
-    if (changed.includes('fovHorizontal')) applyFov();
     if (changed.includes('showFps')) stats.setVisible(s.showFps);
   });
 
@@ -186,7 +171,6 @@ async function boot(): Promise<void> {
     bus,
     getFrame: () => input.frame,
     getSettings: () => settings.value,
-    object: camera,
     setView: (yaw, pitch) => input.view.set(yaw, pitch),
     checkRespawn: (p) => currentDataLevel()?.checkRespawn(p) ?? null,
     // 抓鉤脫鉤／落空後關掉「切換模式」的狀態；準星輔助用每畫面的視角。
@@ -258,7 +242,15 @@ async function boot(): Promise<void> {
   game.addSystem(freeCam);
   game.addSystem(new PhysicsSystem(physics));
   game.addSystem(levels);
-  game.addSystem(cameraSystem(camera, input.view));
+  // 鏡頭（M1-08）：跟隨玩家並疊加效果；除錯飛行時只套用視角（位置由自由相機設定）。
+  const cameraRig = new CameraRig({
+    camera,
+    view: input.view,
+    bus,
+    getSettings: () => settings.value,
+    getPlayer: () => (player.enabled ? player.state : null),
+  });
+  game.addSystem(cameraRig);
   game.addSystem(renderSystem(renderer, scene, camera));
   game.addSystem(stats);
   game.addSystem(panel);
@@ -328,6 +320,15 @@ async function boot(): Promise<void> {
   // 抓鉤繩索（M1-07）。
   const grappleRope = new GrappleRope({ scene, player, camera, panel });
   game.addSystem(grappleRope);
+  // 速度線與調參面板「鏡頭」（M1-08）。
+  const speedLines = new SpeedLines({
+    scene,
+    camera,
+    getSpeed: () => (player.enabled ? player.state.speed : null),
+    isEnabled: () => settings.get('speedLines'),
+  });
+  game.addSystem(speedLines);
+  game.addSystem(bindCameraPanel(panel, cameraRig, speedLines));
   const gridKeys: readonly (keyof GreyboxConfig)[] = ['fineLinePx', 'boldLinePx', 'baseLevel', 'fineLevel', 'boldLevel'];
   panel.bindConfig(
     '關卡/灰盒',
@@ -472,7 +473,7 @@ async function boot(): Promise<void> {
       const handles = {
         ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
         ...{ input, bindings, pointerLock, lockFlow },
-        ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope },
+        ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope, cameraRig, speedLines },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

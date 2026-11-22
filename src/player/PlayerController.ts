@@ -113,7 +113,7 @@ export interface PlayerControllerOptions {
   checkRespawn?: (feet: Readonly<Vec3Like>) => RespawnTarget | null;
   /** 傳送後要求設定視角（yaw、pitch 弧度），例如 input.view.set。 */
   setView?: (yaw: number, pitch: number) => void;
-  /** 渲染時放到插值後眼睛位置的物件（暫用：直接放相機；M1-08 改由 CameraRig 讀 PlayerState）。 */
+  /** 渲染時放到插值後眼睛位置的物件（選填；M1-08 起遊戲的相機改由 CameraRig 讀 PlayerState 定位，main 不再傳入）。 */
   object?: THREE.Object3D | null;
   /** 強制關閉切換模式的動作（抓鉤脫鉤或落空後關掉「切換」狀態，例如 input.builder.setToggle）。 */
   setToggle?: (action: 'grapple', on: boolean) => void;
