@@ -27,7 +27,7 @@
 | [M1-06](docs/plans/M1-06-movement-wall.md) | 移動 II：跑牆、蹬牆跳、攀爬 | M1-05 | 完成 |
 | [M1-07](docs/plans/M1-07-movement-abilities.md) | 移動 III：二段跳、噴射、Dash、抓鉤 ★ | M1-06 | 完成 |
 | [M1-08](docs/plans/M1-08-camera-feel.md) | 鏡頭手感 | M1-05 | 完成 |
-| [M1-09](docs/plans/M1-09-visual-style.md) | 視覺風格與後處理 | M1-04 | 未開始 |
+| [M1-09](docs/plans/M1-09-visual-style.md) | 視覺風格與後處理 | M1-04 | 完成 |
 | [M1-10](docs/plans/M1-10-weapon-core.md) | 武器核心邏輯 | M1-05 | 未開始 |
 | [M1-11](docs/plans/M1-11-weapon-presentation.md) | 武器表現：Viewmodel、特效、準星 ★ | M1-09、M1-10 | 未開始 |
 | [M1-12](docs/plans/M1-12-targets-feedback.md) | 靶標、玩家受擊與戰鬥回饋 | M1-10 | 未開始 |

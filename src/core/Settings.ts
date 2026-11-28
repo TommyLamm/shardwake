@@ -7,9 +7,11 @@
 // 較新版本寫入的欄位不會被較舊版本刪掉）；版本號較新的資料只讀取認得的欄位，存檔時保留其版本號。
 import type { EventBus } from '@/core/EventBus';
 import type { GameEvents } from '@/core/events';
+import { QUALITY_PRESETS, resolveQualityPreset, type QualityLevel, type QualityPreset } from '@/core/quality';
 import type { GameStorage } from '@/core/Storage';
 
-export type QualityLevel = 'low' | 'medium' | 'high';
+export { QUALITY_PRESETS, resolveQualityPreset };
+export type { QualityLevel, QualityPreset };
 /** 蹲、開鏡、抓鉤的操作方式（M1-03 的 InputFrame 轉換）。 */
 export type HoldToggle = 'hold' | 'toggle';
 
@@ -42,13 +44,15 @@ export interface Settings {
   screenShake: number;
   /** 高速時的速度線（M1-08）。 */
   speedLines: boolean;
+  /** 畫面色差脈衝（Dash、受擊；M1-09）。 */
+  chromaticAberration: boolean;
   /** 主音量 0–1（M1-13 使用）。 */
   masterVolume: number;
   /** 音效音量 0–1。 */
   sfxVolume: number;
   /** 介面音量 0–1。 */
   uiVolume: number;
-  /** 畫質預設；決定渲染比例（M1-09 擴充陰影、Bloom 等）。 */
+  /** 畫質預設：渲染比例、陰影、Bloom、SMAA（內容見 core/quality.ts）。 */
   quality: QualityLevel;
   /** 顯示畫面角落的 FPS／frame time。 */
   showFps: boolean;
@@ -77,6 +81,7 @@ export const SETTINGS_SCHEMA = {
   headBob: { type: 'boolean', default: true, label: '頭部晃動' },
   screenShake: { type: 'number', default: 1, min: 0, max: 1, step: 0.05, label: '畫面震動強度' },
   speedLines: { type: 'boolean', default: true, label: '速度線' },
+  chromaticAberration: { type: 'boolean', default: true, label: '畫面色差' },
   masterVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '主音量' },
   sfxVolume: { type: 'number', default: 1, min: 0, max: 1, step: 0.01, label: '音效音量' },
   uiVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '介面音量' },
@@ -89,18 +94,6 @@ export const SETTINGS_SCHEMA = {
   },
   showFps: { type: 'boolean', default: true, label: '顯示 FPS' },
 } as const satisfies Record<SettingsKey, SettingSpec>;
-
-/** 畫質預設的參數（M1-09 加入陰影、Bloom、SMAA 等）。 */
-export interface QualityPreset {
-  /** 渲染比例（乘在像素比上）。 */
-  renderScale: number;
-}
-
-export const QUALITY_PRESETS: Record<QualityLevel, QualityPreset> = {
-  low: { renderScale: 0.67 },
-  medium: { renderScale: 0.85 },
-  high: { renderScale: 1 },
-};
 
 export const SETTINGS_KEY = 'settings:v1';
 export const SETTINGS_VERSION = 1;
@@ -205,9 +198,9 @@ export class SettingsStore {
     return this.current[key];
   }
 
-  /** 目前畫質預設的參數。 */
+  /** 目前畫質預設的參數（已夾住範圍的複本）。 */
   get qualityPreset(): QualityPreset {
-    return QUALITY_PRESETS[this.current.quality];
+    return resolveQualityPreset(this.current.quality);
   }
 
   /** 從儲存重新讀取（不發出變更事件）。 */

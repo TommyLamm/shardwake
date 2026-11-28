@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Physics } from '@/physics/Physics';
-import { GREYBOX_CONFIG, GREYBOX_MATERIAL_TABLE, gridCoverageAt, makeGridPixels, PlainVisuals } from '@/world/Greybox';
+import { GREYBOX_CONFIG, gridCoverageAt, makeGridPixels, PlainVisuals } from '@/world/Greybox';
+import { LEVEL_MATERIAL_TABLE } from '@/world/MaterialDefs';
 import { buildLevel, primitiveWorldGeometry, rampGeometry } from '@/world/LevelBuilder';
 import {
   boxContains,
@@ -57,7 +58,7 @@ const SAMPLE: LevelData = {
 
 describe('LevelData 驗證與查詢', () => {
   it('範例資料合法', () => {
-    expect(validateLevelData(SAMPLE, Object.keys(GREYBOX_MATERIAL_TABLE))).toEqual([]);
+    expect(validateLevelData(SAMPLE, Object.keys(LEVEL_MATERIAL_TABLE))).toEqual([]);
   });
 
   it('列出不合法的欄位', () => {
@@ -73,7 +74,7 @@ describe('LevelData 驗證與查詢', () => {
       spawnPoints: [],
       zones: [{ id: 'z', name: '', pos: [0, 0, 0], size: [1, -1, 1] }],
     };
-    const errors = validateLevelData(bad, Object.keys(GREYBOX_MATERIAL_TABLE)).join('\n');
+    const errors = validateLevelData(bad, Object.keys(LEVEL_MATERIAL_TABLE)).join('\n');
     expect(errors).toMatch(/格式版本/);
     expect(errors).toMatch(/未知材質「nope」/);
     expect(errors).toMatch(/box size/);

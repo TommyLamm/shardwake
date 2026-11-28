@@ -7,7 +7,7 @@ import { Game } from '@/core/Game';
 import { ACTION_BIT } from '@/input/Actions';
 import { createInputFrame } from '@/input/InputFrame';
 import { Physics, type PhysicsHit } from '@/physics/Physics';
-import { GREYBOX_MATERIAL_TABLE } from '@/world/Greybox';
+import { LEVEL_MATERIAL_TABLE } from '@/world/MaterialDefs';
 import { DataLevel, LevelManager } from '@/world/Level';
 import { courseCheckpoints, validateLevelData, zoneSpawn } from '@/world/LevelData';
 import {
@@ -53,7 +53,7 @@ function probeDown(x: number, z: number, fromY = 100): { y: number; owner: unkno
 describe('訓練場資料', () => {
   it('資料合法、約 160 × 160 m', () => {
     const data = createTrainingGroundData();
-    expect(validateLevelData(data, Object.keys(GREYBOX_MATERIAL_TABLE))).toEqual([]);
+    expect(validateLevelData(data, Object.keys(LEVEL_MATERIAL_TABLE))).toEqual([]);
     expect(data.id).toBe(TRAINING_GROUND_ID);
     const floorBounds = new THREE.Box3();
     for (const p of level.built!.primitives) if (p.id.startsWith('floor-')) floorBounds.union(p.bounds);
@@ -61,7 +61,7 @@ describe('訓練場資料', () => {
     expect(floorBounds.max.z - floorBounds.min.z).toBe(160);
   });
 
-  it('靜態幾何已合併：網格 + 看板 < 80（draw call 預算）', () => {
+  it('靜態幾何已合併：網格 + 看板 < 80（draw call 預算；M1-09 起看板合併成一個網格，這裡仍以逐塊計算取上限）', () => {
     const built = level.built!;
     const drawables = built.stats.meshes + level.data.labels.length;
     expect(drawables).toBeLessThan(80);

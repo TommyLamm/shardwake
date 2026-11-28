@@ -1,4 +1,6 @@
-// 灰盒訓練場（約 160 × 160 m，地面頂面 y = 0，-Z 為北）。所有數值都是 LevelData，M1-09 套正式材質。
+// 訓練場（約 160 × 160 m，地面頂面 y = 0，-Z 為北）。所有數值都是 LevelData。
+// M1-09：套用正式材質（world/MaterialDefs.ts：各分區不同底色與發光主色），加上邊緣發光條（無碰撞，見 buildGlowStrips）
+// 與中文全息看板（含中央廣場的方向指示）。
 //
 // 分區（x 由西到東、z 由北到南）：
 //   靶場          x[-80,-46]  射擊線 z = 40，10／25／50／75 m 標線，北端擋牆
@@ -22,7 +24,7 @@ import type {
   Vec3Tuple,
   Zone,
 } from '@/world/LevelData';
-import type { GreyboxMaterialId } from '@/world/Greybox';
+import type { LevelMaterialId } from '@/world/MaterialDefs';
 import { DataLevel } from '@/world/Level';
 import { halfPipe } from '@/world/LevelShapes';
 
@@ -31,7 +33,7 @@ export const TRAINING_GROUND_ID = 'training-ground';
 /** 由兩個角點建立軸對齊 box。 */
 function boxMinMax(
   id: string,
-  material: GreyboxMaterialId,
+  material: LevelMaterialId,
   min: Vec3Tuple,
   max: Vec3Tuple,
   flags?: PrimitiveFlags,
@@ -47,14 +49,14 @@ function boxMinMax(
 }
 
 /** 地板磚（頂面 y = 0、厚 1 m）。 */
-function floor(id: string, material: GreyboxMaterialId, x0: number, x1: number, z0: number, z1: number): LevelPrimitive {
+function floor(id: string, material: LevelMaterialId, x0: number, x1: number, z0: number, z1: number): LevelPrimitive {
   return boxMinMax(id, material, [x0, -1, z0], [x1, 0, z1]);
 }
 
 /** 站在地面上的 box（底面 y = base）。 */
 function block(
   id: string,
-  material: GreyboxMaterialId,
+  material: LevelMaterialId,
   x: number,
   z: number,
   size: Vec3Tuple,
@@ -73,7 +75,7 @@ function block(
   };
 }
 
-function pillar(id: string, material: GreyboxMaterialId, x: number, z: number, diameter: number, height: number, base = 0): CylinderPrimitive {
+function pillar(id: string, material: LevelMaterialId, x: number, z: number, diameter: number, height: number, base = 0): CylinderPrimitive {
   return { id, type: 'cylinder', material, pos: [x, base + height / 2, z], size: [diameter, height, diameter] };
 }
 
@@ -93,6 +95,23 @@ export const RANGE_DISTANCES = [10, 25, 50, 75] as const;
 export const RANGE_FIRING_LINE_Z = 40;
 export const RANGE_LANE_X = -64;
 export const KILL_Y = -30;
+/** 戰區低掩體（x, z, yaw°）。 */
+const ARENA_COVERS: readonly (readonly [number, number, number])[] = [
+  [30, -20, 0],
+  [42, -8, 30],
+  [55, -22, -15],
+  [66, -6, 0],
+  [36, 10, -30],
+  [50, 4, 90],
+  [62, 14, 20],
+  [72, -26, 45],
+];
+/** 高塔（x, z, 高度）。 */
+const TOWERS: readonly (readonly [number, number, number])[] = [
+  [32, -50, TOWER_HEIGHTS[0]],
+  [50, -62, TOWER_HEIGHTS[1]],
+  [68, -48, TOWER_HEIGHTS[2]],
+];
 /**
  * Z 字牆板（深坑上方）：左右交錯的可跑牆板，內側牆面 x = -36.5／-31.5（內距 5 m，比長廊窄 1 m），
  * 每片長 9 m、間隔 9.5 m，遠端往中線內傾 tiltDeg（M1-06 依跑牆／蹬牆跳數值調整；原本各向外偏 20°，
@@ -205,17 +224,7 @@ function buildPrimitives(): LevelPrimitive[] {
   });
 
   // ── 無人機戰區：低掩體、柱子、高牆 ──
-  const covers: [number, number, number][] = [
-    [30, -20, 0],
-    [42, -8, 30],
-    [55, -22, -15],
-    [66, -6, 0],
-    [36, 10, -30],
-    [50, 4, 90],
-    [62, 14, 20],
-    [72, -26, 45],
-  ];
-  covers.forEach(([cx, cz, yaw], i) => P.push(block(`arena-cover-${i}`, 'cover', cx, cz, [4, 1.2, 1], yaw)));
+  ARENA_COVERS.forEach(([cx, cz, yaw], i) => P.push(block(`arena-cover-${i}`, 'cover', cx, cz, [4, 1.2, 1], yaw)));
   P.push(
     pillar('arena-pillar-0', 'cover', 46, -16, 2.4, 5),
     pillar('arena-pillar-1', 'cover', 58, 6, 2.4, 5),
@@ -226,12 +235,7 @@ function buildPrimitives(): LevelPrimitive[] {
   );
 
   // ── 高塔（6 × 6 m）與抓鉤練習 ──
-  const towers: [number, number, number][] = [
-    [32, -50, TOWER_HEIGHTS[0]],
-    [50, -62, TOWER_HEIGHTS[1]],
-    [68, -48, TOWER_HEIGHTS[2]],
-  ];
-  towers.forEach(([tx, tz, h]) => {
+  TOWERS.forEach(([tx, tz, h]) => {
     P.push(block(`tower-${h}`, 'tower', tx, tz, [6, h, 6]));
     // 塔頂抓鉤柱。
     P.push(pillar(`tower-${h}-anchor`, 'grapple', tx, tz, 0.8, 2.5, h));
@@ -242,13 +246,137 @@ function buildPrimitives(): LevelPrimitive[] {
     block('grapple-float-1', 'grapple', 59, -55, [2, 1, 2], 0, 35),
     block('grapple-float-2', 'grapple', 50, -44, [2, 1, 2], 0, 15),
   );
+  P.push(...buildGlowStrips());
+  return P;
+}
+
+/** 無碰撞的發光條（軸對齊）。 */
+function strip(id: string, material: LevelMaterialId, min: Vec3Tuple, max: Vec3Tuple): LevelPrimitive {
+  return boxMinMax(id, material, min, max, { noCollide: true });
+}
+
+/**
+ * 邊緣發光條（M1-09，全部 noCollide，不影響移動與抓鉤判定）：
+ * 外牆頂與牆腳（青）、跑牆長廊與 Z 字牆板（洋紅）、滑鏟坡兩側與坡頂（青）、半管邊緣（青）、
+ * 攀爬牆頂緣（橘，可攀的邊緣）、浮台前後緣（洋紅）、高塔四角（青）、出生平台外緣（青）、戰區掩體頂（橘）。
+ */
+function buildGlowStrips(): LevelPrimitive[] {
+  const P: LevelPrimitive[] = [];
+  const t = 0.06; // 突出牆面的厚度
+  // 外牆內側：頂緣與牆腳。
+  for (const [y0, y1, tag] of [
+    [11.72, 11.9, 'top'],
+    [0.22, 0.3, 'base'],
+  ] as const) {
+    P.push(
+      strip(`glow-wall-n-${tag}`, 'glowCyan', [-80, y0, -80], [80, y1, -80 + t]),
+      strip(`glow-wall-s-${tag}`, 'glowCyan', [-80, y0, 80 - t], [80, y1, 80]),
+      strip(`glow-wall-w-${tag}`, 'glowCyan', [-80, y0, -80], [-80 + t, y1, 80]),
+      strip(`glow-wall-e-${tag}`, 'glowCyan', [80 - t, y0, -80], [80, y1, 80]),
+    );
+  }
+  // 跑牆長廊（內側牆面 x = -37／-31）：頂緣與牆腳。
+  for (const [y0, y1, tag] of [
+    [5.82, 5.96, 'top'],
+    [0.3, 0.38, 'base'],
+  ] as const) {
+    P.push(
+      strip(`glow-wallrun-w-${tag}`, 'glowMagenta', [-37, y0, -10], [-37 + t, y1, 30]),
+      strip(`glow-wallrun-e-${tag}`, 'glowMagenta', [-31 - t, y0, -10], [-31, y1, 30]),
+    );
+  }
+  // Z 字牆板：包住頂緣的細條（與牆板同旋轉）。
+  const zz = ZIGZAG;
+  for (let i = 0; i < zz.count; i++) {
+    const left = i % 2 === 0;
+    const x = left ? zz.leftFaceX - zz.thickness / 2 : zz.rightFaceX + zz.thickness / 2;
+    P.push({
+      id: `glow-zigzag-${i}`,
+      type: 'box',
+      material: 'glowMagenta',
+      pos: [x, zz.baseY + zz.height - 0.05, zz.firstZ - i * zz.spacing],
+      size: [zz.thickness + 0.04, 0.12, zz.length + 0.02],
+      rot: [0, left ? -zz.tiltDeg : zz.tiltDeg, 0],
+      flags: { noCollide: true },
+    });
+  }
+  // 滑鏟長坡：兩側邊緣（貼在坡面上的薄坡板）與坡頂平台前緣。
+  const s = SLIDE_SLOPE;
+  for (const side of [-1, 1] as const) {
+    P.push({
+      id: `glow-slide-${side < 0 ? 'w' : 'e'}`,
+      type: 'ramp',
+      material: 'glowCyan',
+      pos: [s.x + side * (s.width / 2 - 0.08), 0.03, s.lowZ - s.run / 2],
+      size: [0.16, s.rise, s.run],
+      thickness: 0.06,
+      flags: { noCollide: true },
+    });
+  }
+  P.push(strip('glow-slide-deck', 'glowCyan', [s.x - s.width / 2, s.rise, s.lowZ - s.run - 0.16], [s.x + s.width / 2, s.rise + 0.03, s.lowZ - s.run]));
+  // 半管：兩側唇緣的內緣（x = 9 ± 5，高 5.5 m）。
+  for (const side of [-1, 1] as const) {
+    const x0 = side < 0 ? 9 - 5 - 0.14 : 9 + 5;
+    P.push(strip(`glow-halfpipe-${side < 0 ? 'w' : 'e'}`, 'glowCyan', [x0, 5.5, -45], [x0 + 0.14, 5.53, -5]));
+  }
+  // 攀爬測試牆：南側（面向出生點）的頂緣，標出可攀的邊緣。
+  CLIMB_WALL_HEIGHTS.forEach((h, i) => {
+    const cx = 30 + i * 10;
+    P.push(strip(`glow-climb-${h}`, 'glowOrange', [cx - 3, h - 0.1, 63], [cx + 3, h + 0.01, 63 + t]));
+  });
+  // 浮台：南北兩側的上緣。
+  const plat = (id: string, x0: number, x1: number): void => {
+    P.push(
+      strip(`glow-${id}-s`, 'glowMagenta', [x0, PLATFORM_TOP - 0.1, 36], [x1, PLATFORM_TOP + 0.01, 36 + t]),
+      strip(`glow-${id}-n`, 'glowMagenta', [x0, PLATFORM_TOP - 0.1, 30 - t], [x1, PLATFORM_TOP + 0.01, 30]),
+    );
+  };
+  plat('platform-start', 24, 29);
+  let px = 29;
+  PLATFORM_GAPS.forEach((gap, i) => {
+    px += gap;
+    plat(`platform-${i + 1}`, px, px + 3);
+    px += 3;
+  });
+  // 高塔四角的垂直發光條。
+  for (const [tx, tz, h] of TOWERS) {
+    for (const [cx, cz] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const x = tx + cx * 3;
+      const z = tz + cz * 3;
+      P.push(strip(`glow-tower-${h}-${cx}${cz}`, 'glowCyan', [x - 0.08, 0, z - 0.08], [x + 0.08, h, z + 0.08]));
+    }
+  }
+  // 出生平台外緣（平台 12 × 12、高 0.3）。
+  P.push(
+    strip('glow-spawn-s', 'glowCyan', [-6, 0.22, 68], [6, 0.31, 68 + t]),
+    strip('glow-spawn-n', 'glowCyan', [-6, 0.22, 56 - t], [6, 0.31, 56]),
+    strip('glow-spawn-w', 'glowCyan', [-6 - t, 0.22, 56], [-6, 0.31, 68]),
+    strip('glow-spawn-e', 'glowCyan', [6, 0.22, 56], [6 + t, 0.31, 68]),
+  );
+  // 戰區掩體頂緣（與掩體同旋轉）。
+  ARENA_COVERS.forEach(([cx, cz, yaw], i) => {
+    P.push({
+      id: `glow-cover-${i}`,
+      type: 'box',
+      material: 'glowOrange',
+      pos: [cx, 1.2 - 0.03, cz],
+      size: [4.04, 0.08, 1.04],
+      ...(yaw ? { rot: [0, yaw, 0] as Vec3Tuple } : {}),
+      flags: { noCollide: true },
+    });
+  });
   return P;
 }
 
 function buildLabels(): LevelLabel[] {
   const fz = RANGE_FIRING_LINE_Z;
   const L: LevelLabel[] = [
-    { text: '碎晶航跡 SHARDWAKE', sub: '訓練場（灰盒）', pos: [0, 6, 46], yaw: 0, height: 1.4, color: 0x9ff4ff },
+    { text: '碎晶航跡 SHARDWAKE', sub: '疾行者訓練場', pos: [0, 6, 46], yaw: 0, height: 1.4, color: 0x9ff4ff },
     { text: '靶場', sub: '10／25／50／75 m', pos: [RANGE_LANE_X, 7, fz + 4], yaw: 0, height: 1.4 },
     { text: '射擊線', pos: [-75, 1.4, fz - 0.5], yaw: 0, height: 0.6, color: 0xffc080 },
     ...RANGE_DISTANCES.map(
@@ -265,6 +393,10 @@ function buildLabels(): LevelLabel[] {
     { text: '浮台群', sub: '間距 4／7／10／14 m（二段跳或 Dash）', pos: [50, 9, 33], yaw: 0, height: 1.2 },
     { text: '無人機戰區', pos: [50, 7, 23], yaw: 0, height: 1.4 },
     { text: '高塔', sub: '20／30／40 m・頂端抓鉤練習', pos: [50, 7, -35], yaw: 0, height: 1.3 },
+    // 中央廣場的方向指示（面向出生平台）。
+    { text: '◀ 跑牆長廊・靶場', pos: [-14, 3.2, 30], yaw: 30, height: 0.8, color: 0xff9cf4 },
+    { text: '滑鏟長坡・半管 ▲', pos: [0, 3.6, 26], yaw: 0, height: 0.8, color: 0x9ff4ff },
+    { text: '戰區・浮台・高塔 ▶', pos: [14, 3.2, 30], yaw: -30, height: 0.8, color: 0xffc080 },
   ];
   let x = 29;
   PLATFORM_GAPS.forEach((gap) => {

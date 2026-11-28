@@ -1,6 +1,8 @@
 // 速度線（M1-08）：水平速度超過 minSpeed 時淡入的螢幕空間放射狀線條。
 // 以全螢幕四邊形實作（頂點著色器直接輸出裁切座標，不受相機影響；不需後處理管線），
-// 加法混合、不做深度測試、最後繪製；強度為 0 時隱藏（不多一個 draw call）。M1-09 加入後處理後可改成 Effect。
+// 加法混合、不做深度測試、最後繪製；強度為 0 時隱藏（不多一個 draw call）。
+// M1-09 起畫進後處理的 HDR buffer（之後經色調映射；不透明度 0.35 低於 Bloom 閾值，不會泛光）。
+// 沒有改寫成 postprocessing Effect：Effect 的開關會讓合成著色器重新編譯，隱藏時省下的 draw call 反而更划算。
 // 只讀玩家的水平速度與設定，不影響模擬；強度以畫面的模擬 dt 平滑（暫停時凍結）。
 import * as THREE from 'three';
 import { SystemOrder, type FrameInfo, type GameSystem } from '@/core/Game';

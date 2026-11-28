@@ -3,6 +3,7 @@
 // - 網格先在世界座標生成（含以公尺計的格線 UV），再依材質用 mergeGeometries 合併：
 //   每個材質一個 Mesh（一個 draw call），靜態幾何不更新矩陣。
 // - 表面資訊（跑牆、抓鉤、材質、owner = 基本體 id）登記到 physics.surfaces。
+// - 陰影旗標由 visuals.shadowFlags(id) 決定；看板優先用 visuals.labels()（一次建立、合併成一個網格，M1-09 全息看板）。
 // - physics 可省略（只產生網格，例如預覽）；visuals 可省略（無頭測試用 PlainVisuals）。
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
@@ -10,7 +11,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COLLISION_PRESETS } from '@/physics/groups';
 import type { Physics } from '@/physics/Physics';
 import { DEFAULT_SURFACE, type SurfaceInfo } from '@/physics/SurfaceRegistry';
-import { GREYBOX_MATERIAL_TABLE, PlainVisuals, type LevelVisuals, type MaterialTable } from '@/world/Greybox';
+import { PlainVisuals, type LevelVisuals } from '@/world/Greybox';
+import { LEVEL_MATERIAL_TABLE, type MaterialTable } from '@/world/MaterialDefs';
 import {
   CYLINDER_DEFAULT_SEGMENTS,
   RAMP_DEFAULT_THICKNESS,
@@ -23,7 +25,7 @@ import {
 export interface BuildOptions {
   /** 物理世界；省略時不建立碰撞體。 */
   physics?: Physics | null;
-  /** 外觀來源；省略時用 PlainVisuals（MeshBasicMaterial，無看板）。 */
+  /** 外觀來源；省略時用 PlainVisuals（MeshBasicMaterial，無看板、無陰影）。 */
   visuals?: LevelVisuals;
   /** 材質表（表面類型與預設旗標）。 */
   materials?: MaterialTable;
@@ -49,6 +51,7 @@ export interface LevelBuildStats {
   colliders: number;
   /** 關卡網格數（合併後；每個大約一個 draw call）。 */
   meshes: number;
+  /** 看板數（合併成一個網格時仍算各自的數量）。 */
   labels: number;
   triangles: number;
   vertices: number;
@@ -262,7 +265,7 @@ export function resolveSurface(p: LevelPrimitive, id: string, materials: Materia
 
 /** 建構關卡。資料不合法時丟出例外（列出所有錯誤）。 */
 export function buildLevel(data: LevelData, options: BuildOptions = {}): LevelBuild {
-  const materials = options.materials ?? GREYBOX_MATERIAL_TABLE;
+  const materials = options.materials ?? LEVEL_MATERIAL_TABLE;
   const errors = validateLevelData(data, Object.keys(materials));
   if (errors.length > 0) throw new Error(`關卡「${data.id}」資料不合法：\n${errors.join('\n')}`);
 
@@ -310,6 +313,9 @@ export function buildLevel(data: LevelData, options: BuildOptions = {}): LevelBu
     merged.computeBoundingSphere();
     const mesh = new THREE.Mesh(merged, visuals.material(materialId));
     mesh.name = `level:${data.id}:${materialId}`;
+    const shadow = visuals.shadowFlags?.(materialId);
+    mesh.castShadow = shadow?.cast ?? false;
+    mesh.receiveShadow = shadow?.receive ?? false;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     root.add(mesh);
@@ -319,14 +325,23 @@ export function buildLevel(data: LevelData, options: BuildOptions = {}): LevelBu
   }
 
   const labels: THREE.Object3D[] = [];
-  if (!options.skipLabels && visuals.label) {
-    for (const l of data.labels) {
-      const obj = visuals.label(l);
-      if (!obj) continue;
-      obj.updateMatrix();
-      obj.matrixAutoUpdate = false;
-      root.add(obj);
-      labels.push(obj);
+  let labelCount = 0;
+  const addLabel = (obj: THREE.Object3D, count: number): void => {
+    obj.updateMatrix();
+    obj.matrixAutoUpdate = false;
+    root.add(obj);
+    labels.push(obj);
+    labelCount += count;
+  };
+  if (!options.skipLabels && data.labels.length > 0) {
+    if (visuals.labels) {
+      const obj = visuals.labels(data.labels);
+      if (obj) addLabel(obj, typeof obj.userData.labelCount === 'number' ? obj.userData.labelCount : data.labels.length);
+    } else if (visuals.label) {
+      for (const l of data.labels) {
+        const obj = visuals.label(l);
+        if (obj) addLabel(obj, 1);
+      }
     }
   }
   root.updateMatrixWorld(true);
@@ -343,7 +358,7 @@ export function buildLevel(data: LevelData, options: BuildOptions = {}): LevelBu
       primitives: primitives.length,
       colliders: colliders.length,
       meshes: meshes.length,
-      labels: labels.length,
+      labels: labelCount,
       triangles,
       vertices,
     },
@@ -353,6 +368,10 @@ export function buildLevel(data: LevelData, options: BuildOptions = {}): LevelBu
       if (physics && !physics.isDisposed) for (const c of colliders) physics.removeCollider(c, generation);
       for (const m of meshes) m.geometry.dispose();
       for (const obj of labels) {
+        if (typeof obj.userData.dispose === 'function') {
+          (obj.userData.dispose as () => void)();
+          continue;
+        }
         obj.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh && !(o as THREE.Sprite).isSprite) return;

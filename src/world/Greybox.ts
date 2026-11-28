@@ -1,15 +1,15 @@
-// 灰盒外觀（M1-09 換成正式材質庫）：
-// - 程序格線貼圖：每格 tileMeters（5 m）一張，1 m 細線、5 m 粗線；mipmap + 最大 anisotropy，高速移動時看得出速度。
-//   貼圖像素由純函式 makeGridPixels() 產生（DataTexture，不需要 Canvas，可無頭測試）。
-// - 材質表 GREYBOX_MATERIALS：每個材質 id 的底色、表面類型與預設旗標（各區用不同底色）。
-// - GreyboxVisuals：LevelBuilder 的外觀來源（材質快取、看板文字）。
-// - 灰盒燈光與霧：半球光 + 1 盞方向光（無陰影；M1-09 加陰影、天空與後處理）。
+// 灰盒格線與關卡外觀介面（M1-04；M1-09 起正式外觀改由 world/Materials.ts 的 MaterialLibrary 提供）：
+// - 程序格線貼圖：每格 tileMeters（5 m）一張，1 m 細線、5 m 粗線。貼圖像素由純函式 makeGridPixels() 產生
+//   （DataTexture，不需要 Canvas，可無頭測試）；Textures.ts 的 'grid' 圖樣沿用。
+// - LevelVisuals：LevelBuilder 的外觀來源介面；PlainVisuals 為無頭測試用的最簡實作。
+// - makeTextTexture：Canvas 文字貼圖（除錯顯示的區域名稱使用）。
+// 材質表（表面類型、預設旗標、外觀）在 world/MaterialDefs.ts。
 import * as THREE from 'three';
-import type { SurfaceType } from '@/physics/SurfaceRegistry';
+import { LEVEL_MATERIAL_TABLE, type MaterialTable } from '@/world/MaterialDefs';
 import type { LevelLabel } from '@/world/LevelData';
 
 export interface GreyboxConfig {
-  /** 一張格線貼圖代表幾公尺（粗線間距）。 */
+  /** 一張格線貼圖代表幾公尺（粗線間距；也是世界 UV 的尺度）。 */
   tileMeters: number;
   /** 貼圖邊長（像素，2 的次方）。 */
   textureSize: number;
@@ -21,17 +21,6 @@ export interface GreyboxConfig {
   baseLevel: number;
   fineLevel: number;
   boldLevel: number;
-  /** anisotropy 上限（0 = 使用顯示卡最大值）。 */
-  maxAnisotropy: number;
-  roughness: number;
-  metalness: number;
-  /** 灰盒燈光。 */
-  hemiIntensity: number;
-  sunIntensity: number;
-  /** 霧（線性）。 */
-  fogNear: number;
-  fogFar: number;
-  clearColor: number;
 }
 
 export const GREYBOX_CONFIG: GreyboxConfig = {
@@ -42,57 +31,7 @@ export const GREYBOX_CONFIG: GreyboxConfig = {
   baseLevel: 0.5,
   fineLevel: 0.72,
   boldLevel: 0.95,
-  maxAnisotropy: 0,
-  roughness: 0.85,
-  metalness: 0.05,
-  hemiIntensity: 1.6,
-  sunIntensity: 1.8,
-  fogNear: 90,
-  fogFar: 320,
-  clearColor: 0x0a0f18,
 };
-
-export interface GreyboxMaterialDef {
-  label: string;
-  color: number;
-  surface: SurfaceType;
-  wallRunnable?: boolean;
-  grappleable?: boolean;
-  /** 自發光顏色（標線、抓鉤點）。 */
-  emissive?: number;
-  /** 不貼格線（玻璃、標線）。 */
-  noGrid?: boolean;
-  /** 半透明（玻璃）。 */
-  opacity?: number;
-}
-
-/** 灰盒材質表（可在調參面板改底色）。 */
-export const GREYBOX_MATERIALS = {
-  floor: { label: '一般地板', color: 0x56606c, surface: 'concrete' },
-  wall: { label: '外牆', color: 0x4a5566, surface: 'metal', wallRunnable: true, grappleable: true },
-  spawn: { label: '出生區', color: 0x3f8a92, surface: 'metal' },
-  range: { label: '靶場', color: 0x8a6a48, surface: 'concrete' },
-  marker: { label: '標線', color: 0xffa040, surface: 'metal', emissive: 0xff8a20, noGrid: true },
-  wallrun: { label: '跑牆區', color: 0x5a62b8, surface: 'metal', wallRunnable: true },
-  pit: { label: '深坑', color: 0x2a2f3a, surface: 'metal' },
-  slide: { label: '滑鏟區', color: 0x4a8a5c, surface: 'metal' },
-  climb: { label: '攀爬區', color: 0x9a8a46, surface: 'concrete' },
-  platform: { label: '浮台區', color: 0x8a4a92, surface: 'grate' },
-  tower: { label: '高塔', color: 0x4a74a8, surface: 'metal', wallRunnable: true, grappleable: true },
-  grapple: { label: '抓鉤點', color: 0x46d8ea, surface: 'metal', grappleable: true, emissive: 0x1a8a9a },
-  arena: { label: '戰區', color: 0x9a4a4a, surface: 'concrete' },
-  cover: { label: '掩體', color: 0x6a6068, surface: 'metal' },
-  grate: { label: '格柵', color: 0x5c6670, surface: 'grate' },
-  glass: { label: '玻璃', color: 0x9ad8ff, surface: 'glass', noGrid: true, opacity: 0.35 },
-  hazard: { label: '警示', color: 0xff7a1a, surface: 'hazard', emissive: 0x6a2a00 },
-} satisfies Record<string, GreyboxMaterialDef>;
-
-export type GreyboxMaterialId = keyof typeof GREYBOX_MATERIALS;
-
-/** 材質表查詢（LevelBuilder 用來決定表面類型與預設旗標）。 */
-export type MaterialTable = Readonly<Record<string, GreyboxMaterialDef>>;
-
-export const GREYBOX_MATERIAL_TABLE: MaterialTable = GREYBOX_MATERIALS;
 
 // ── 格線貼圖 ───────────────────────────────────────────
 
@@ -206,15 +145,22 @@ export function makeTextTexture(
 
 // ── 外觀來源 ───────────────────────────────────────────
 
-/** LevelBuilder 的外觀來源介面（灰盒實作見 GreyboxVisuals；M1-09 換成正式材質庫）。 */
+/** LevelBuilder 的外觀來源介面（正式實作見 world/Materials.ts 的 MaterialLibrary）。 */
 export interface LevelVisuals {
   /** 材質 id → 共用材質（同一個 id 永遠回傳同一個物件）。 */
   material(id: string): THREE.Material;
   /**
-   * 看板（沒有文字繪製能力時回傳 null）。回傳物件的材質與貼圖歸關卡所有（卸載時釋放）；
+   * 單一看板（沒有文字繪製能力時回傳 null）。回傳物件的材質與貼圖歸關卡所有（卸載時釋放）；
    * 共用的幾何體要設 userData.sharedGeometry = true。
    */
   label?(label: LevelLabel): THREE.Object3D | null;
+  /**
+   * 一次建立所有看板（例如合併成一個網格、共用一張文字圖集；優先於 label）。
+   * 回傳物件的 userData.labelCount 為看板數；userData.dispose() 存在時卸載改呼叫它。
+   */
+  labels?(labels: readonly LevelLabel[]): THREE.Object3D | null;
+  /** 材質 id 的陰影旗標（省略時不投射、不接收）。 */
+  shadowFlags?(id: string): { cast: boolean; receive: boolean };
   /** 格線 UV 的尺度：一張貼圖代表幾公尺。 */
   readonly uvTileMeters: number;
 }
@@ -224,7 +170,7 @@ export class PlainVisuals implements LevelVisuals {
   readonly uvTileMeters: number;
   private readonly cache = new Map<string, THREE.MeshBasicMaterial>();
   constructor(
-    private readonly table: MaterialTable = GREYBOX_MATERIAL_TABLE,
+    private readonly table: MaterialTable = LEVEL_MATERIAL_TABLE,
     tileMeters = GREYBOX_CONFIG.tileMeters,
   ) {
     this.uvTileMeters = tileMeters;
@@ -242,99 +188,4 @@ export class PlainVisuals implements LevelVisuals {
     for (const m of this.cache.values()) m.dispose();
     this.cache.clear();
   }
-}
-
-export class GreyboxVisuals implements LevelVisuals {
-  readonly uvTileMeters: number;
-  private gridTexture: THREE.DataTexture;
-  private readonly materials = new Map<string, THREE.MeshStandardMaterial>();
-  /** 所有看板共用的平面（不要個別釋放；userData.sharedGeometry = true）。 */
-  private readonly labelGeometry = new THREE.PlaneGeometry(1, 1);
-  private anisotropy: number;
-
-  constructor(
-    readonly table: Record<string, GreyboxMaterialDef> = GREYBOX_MATERIALS,
-    readonly cfg: GreyboxConfig = GREYBOX_CONFIG,
-    maxAnisotropy = 1,
-  ) {
-    this.uvTileMeters = cfg.tileMeters;
-    this.anisotropy = cfg.maxAnisotropy > 0 ? Math.min(cfg.maxAnisotropy, maxAnisotropy) : maxAnisotropy;
-    this.gridTexture = createGridTexture(cfg, this.anisotropy);
-  }
-
-  material(id: string): THREE.Material {
-    let m = this.materials.get(id);
-    if (!m) {
-      const def = this.table[id];
-      m = new THREE.MeshStandardMaterial({ name: id });
-      this.materials.set(id, m);
-      this.applyDef(m, def);
-    }
-    return m;
-  }
-
-  private applyDef(m: THREE.MeshStandardMaterial, def: GreyboxMaterialDef | undefined): void {
-    m.color.setHex(def?.color ?? 0xff00ff);
-    m.map = def?.noGrid ? null : this.gridTexture;
-    m.emissive.setHex(def?.emissive ?? 0x000000);
-    m.emissiveIntensity = def?.emissive ? 1 : 0;
-    m.roughness = this.cfg.roughness;
-    m.metalness = this.cfg.metalness;
-    const opacity = def?.opacity ?? 1;
-    m.transparent = opacity < 1;
-    m.opacity = opacity;
-    m.depthWrite = opacity >= 1;
-    m.needsUpdate = true;
-  }
-
-  /** 調參面板改了材質表或格線設定後套用（格線像素變更時重建貼圖）。 */
-  refresh(rebuildTexture = false): void {
-    if (rebuildTexture) {
-      const old = this.gridTexture;
-      this.gridTexture = createGridTexture(this.cfg, this.anisotropy);
-      old.dispose();
-    }
-    for (const [id, m] of this.materials) this.applyDef(m, this.table[id]);
-  }
-
-  label(label: LevelLabel): THREE.Object3D | null {
-    const made = makeTextTexture(label.text, { sub: label.sub, color: label.color });
-    if (!made) return null;
-    const mat = new THREE.MeshBasicMaterial({ map: made.texture, transparent: true, alphaTest: 0.05, fog: true });
-    const mesh = new THREE.Mesh(this.labelGeometry, mat);
-    const textHeight = label.height ?? 1;
-    const h = textHeight * (made.lines === 2 ? 1.9 : 1.45);
-    mesh.scale.set(h * made.aspect, h, 1);
-    mesh.position.set(label.pos[0], label.pos[1], label.pos[2]);
-    mesh.rotation.y = (label.yaw * Math.PI) / 180;
-    mesh.name = `label:${label.text}`;
-    mesh.userData.sharedGeometry = true;
-    return mesh;
-  }
-
-  dispose(): void {
-    for (const m of this.materials.values()) m.dispose();
-    this.materials.clear();
-    this.gridTexture.dispose();
-    this.labelGeometry.dispose();
-  }
-}
-
-/** 灰盒燈光、霧與背景（固定燈光數量）。回傳的物件已加入 scene。 */
-export function createGreyboxEnvironment(
-  scene: THREE.Scene,
-  cfg: GreyboxConfig = GREYBOX_CONFIG,
-): { hemi: THREE.HemisphereLight; sun: THREE.DirectionalLight; apply(): void } {
-  const hemi = new THREE.HemisphereLight(0xb8c8e0, 0x1a2230, cfg.hemiIntensity);
-  const sun = new THREE.DirectionalLight(0xfff4e6, cfg.sunIntensity);
-  sun.position.set(40, 100, 25);
-  scene.add(hemi, sun, sun.target);
-  const apply = (): void => {
-    hemi.intensity = cfg.hemiIntensity;
-    sun.intensity = cfg.sunIntensity;
-    scene.background = new THREE.Color(cfg.clearColor);
-    scene.fog = new THREE.Fog(cfg.clearColor, cfg.fogNear, cfg.fogFar);
-  };
-  apply();
-  return { hemi, sun, apply };
 }

@@ -9,7 +9,7 @@
 //             坡面從 local +Z 端（高 0）升到 -Z 端（高 rise）；碰撞體是旋轉過的 cuboid（厚度 thickness，預設 0.5 m）。
 //   cylinder  pos = 中心，size = [直徑, 高, 直徑]（x 與 z 必須相同），軸向 local Y。
 //   trimesh   pos／rot 為變換，vertices（local，xyz 攤平）與 indices（三角形）直接給；size 可省略。
-// material 為材質 id（灰盒材質表 GREYBOX_MATERIALS，M1-09 換成正式材質庫）；材質決定表面類型與預設旗標，
+// material 為材質 id（材質表 LEVEL_MATERIALS，見 world/MaterialDefs.ts）；材質決定表面類型與預設旗標，
 // flags 可逐一覆寫。
 import type { SurfaceType } from '@/physics/SurfaceRegistry';
 

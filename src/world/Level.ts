@@ -9,7 +9,8 @@ import type { EventBus } from '@/core/EventBus';
 import type { GameEvents } from '@/core/events';
 import { SystemOrder, type GameSystem } from '@/core/Game';
 import type { Physics, Vec3Like } from '@/physics/Physics';
-import type { LevelVisuals, MaterialTable } from '@/world/Greybox';
+import type { LevelVisuals } from '@/world/Greybox';
+import type { MaterialTable } from '@/world/MaterialDefs';
 import { buildLevel, type LevelBuild } from '@/world/LevelBuilder';
 import {
   degToRad,

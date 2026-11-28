@@ -1,6 +1,7 @@
 // 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬；
-// M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）。
-// renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render。
+// M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）、
+// 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）。
+// renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
 import * as THREE from 'three';
@@ -10,9 +11,10 @@ import { FREE_CAMERA_CONFIG, FreeCamera } from '@/camera/FreeCamera';
 import { LOOP_CONFIG, VIEWPORT_CONFIG } from '@/core/config';
 import { EventBus } from '@/core/EventBus';
 import type { GameEvents, GameMode } from '@/core/events';
-import { Game, SystemOrder, type GameSystem } from '@/core/Game';
+import { Game, SystemOrder } from '@/core/Game';
 import { Lifecycle } from '@/core/Lifecycle';
-import { QUALITY_PRESETS, SETTINGS_SCHEMA, SettingsStore, type Settings, type SettingsKey } from '@/core/Settings';
+import { resolveQualityPreset } from '@/core/quality';
+import { SETTINGS_SCHEMA, SettingsStore, type Settings, type SettingsKey } from '@/core/Settings';
 import { GameStorage } from '@/core/Storage';
 import { Viewport } from '@/core/Viewport';
 import { DebugPanel, hasHashFlag, type ConfigSchema, type ParamSpec } from '@/debug/DebugPanel';
@@ -25,21 +27,20 @@ import { LockFlow } from '@/input/LockFlow';
 import { cmPer360 } from '@/input/Mouse';
 import { PointerLock } from '@/input/PointerLock';
 import { GrappleRope } from '@/fx/GrappleRope';
+import { PostFX } from '@/fx/PostFX';
 import { SpeedLines } from '@/fx/SpeedLines';
+import { bindVisualPanel } from '@/fx/VisualPanel';
+import { runWarmup, type WarmupReport } from '@/fx/Warmup';
 import { PHYSICS_CONFIG } from '@/physics/config';
 import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
 import { bindMovementPanel } from '@/player/MovementPanel';
 import { PlayerController } from '@/player/PlayerController';
 import { StartOverlay } from '@/ui/StartOverlay';
-import {
-  GREYBOX_CONFIG,
-  GREYBOX_MATERIALS,
-  GreyboxVisuals,
-  createGreyboxEnvironment,
-  type GreyboxConfig,
-} from '@/world/Greybox';
 import { DataLevel, LevelManager } from '@/world/Level';
+import { SceneLighting } from '@/world/Lighting';
+import { ENVIRONMENT_CONFIG, MaterialLibrary, setupEnvironment } from '@/world/Materials';
+import { Sky } from '@/world/Sky';
 import { LevelDebug } from '@/world/LevelDebug';
 import { TrainingGround } from '@/world/levels/TrainingGround';
 import './style.css';
@@ -57,16 +58,6 @@ async function initPhysics(): Promise<void> {
       globalThis.crossOriginIsolated ?? false,
     )}；SharedArrayBuffer ${typeof SharedArrayBuffer === 'undefined' ? '不可用' : '可用'}（不需要）`,
   );
-}
-
-function renderSystem(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): GameSystem {
-  return {
-    name: 'render',
-    order: SystemOrder.render,
-    render() {
-      renderer.render(scene, camera);
-    },
-  };
 }
 
 /** 把設定欄位規格轉成調參面板規格。 */
@@ -96,13 +87,16 @@ async function boot(): Promise<void> {
   const settings = new SettingsStore(storage, bus);
   const game = new Game({ bus, loop: LOOP_CONFIG });
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  // 反鋸齒改用後處理的 SMAA（M1-09）；色調映射（AgX）在 PostFX，renderer 本身不做。
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setClearColor(GREYBOX_CONFIG.clearColor);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   app.appendChild(renderer.domElement);
 
   // FOV 由 CameraRig 每畫面依設定的水平 FOV 與畫面比例設定（M1-08）。
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 600);
+  // 遠裁切 900 m：場地對角線約 226 m，遠景巨構剪影在 380–520 m（M1-09）。
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 900);
 
   const viewport = new Viewport({
     container: app,
@@ -153,7 +147,6 @@ async function boot(): Promise<void> {
   bus.on('debug:panel', ({ open }) => lockFlow.debugPanelChanged(open));
 
   settings.onChange((s, changed) => {
-    if (changed.includes('quality')) viewport.setRenderScale(QUALITY_PRESETS[s.quality].renderScale);
     if (changed.includes('showFps')) stats.setVisible(s.showFps);
   });
 
@@ -161,9 +154,17 @@ async function boot(): Promise<void> {
   await initPhysics();
   const physics = new Physics({ bus });
   const scene = new THREE.Scene();
-  const environment = createGreyboxEnvironment(scene);
-  const visuals = new GreyboxVisuals(GREYBOX_MATERIALS, GREYBOX_CONFIG, renderer.capabilities.getMaxAnisotropy());
-  const levels = new LevelManager({ physics, scene, visuals, bus });
+  // ── 視覺（M1-09）：後處理、環境反射、燈光、天空與霧、材質庫 ─────────
+  const qualityPreset = (): ReturnType<typeof resolveQualityPreset> => resolveQualityPreset(settings.get('quality'));
+  const postfx = new PostFX({ renderer, scene, camera, quality: qualityPreset() });
+  postfx.aberrationEnabled = settings.get('chromaticAberration');
+  postfx.setSize(viewport.width, viewport.height);
+  viewport.onResize((size) => postfx.setSize(size.width, size.height));
+  setupEnvironment(renderer, scene, ENVIRONMENT_CONFIG);
+  const lighting = new SceneLighting({ scene, camera, quality: qualityPreset() });
+  const sky = new Sky({ scene, camera, getPixelRatio: () => viewport.pixelRatio });
+  const library = new MaterialLibrary({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
+  const levels = new LevelManager({ physics, scene, visuals: library, bus });
   const currentDataLevel = (): DataLevel | null => (levels.current instanceof DataLevel ? levels.current : null);
   const feet = new THREE.Vector3();
   const player = new PlayerController({
@@ -251,7 +252,16 @@ async function boot(): Promise<void> {
     getPlayer: () => (player.enabled ? player.state : null),
   });
   game.addSystem(cameraRig);
-  game.addSystem(renderSystem(renderer, scene, camera));
+  game.addSystem(lighting);
+  game.addSystem(sky);
+  game.addSystem({
+    name: 'materials',
+    order: SystemOrder.fx,
+    render(_alpha, frame) {
+      library.update(frame.realDt);
+    },
+  });
+  game.addSystem(postfx);
   game.addSystem(stats);
   game.addSystem(panel);
   game.addSystem(levelDebug);
@@ -329,40 +339,62 @@ async function boot(): Promise<void> {
   });
   game.addSystem(speedLines);
   game.addSystem(bindCameraPanel(panel, cameraRig, speedLines));
-  const gridKeys: readonly (keyof GreyboxConfig)[] = ['fineLinePx', 'boldLinePx', 'baseLevel', 'fineLevel', 'boldLevel'];
-  panel.bindConfig(
-    '關卡/灰盒',
-    GREYBOX_CONFIG,
-    {
-      fineLinePx: { label: '1 m 線寬 px', min: 0, max: 16, step: 0.5 },
-      boldLinePx: { label: '5 m 線寬 px', min: 0, max: 24, step: 0.5 },
-      baseLevel: { label: '底色亮度', min: 0, max: 1, step: 0.01 },
-      fineLevel: { label: '細線亮度', min: 0, max: 1, step: 0.01 },
-      boldLevel: { label: '粗線亮度', min: 0, max: 1, step: 0.01 },
-      roughness: { label: '粗糙度', min: 0, max: 1, step: 0.01 },
-      metalness: { label: '金屬度', min: 0, max: 1, step: 0.01 },
-      hemiIntensity: { label: '半球光', min: 0, max: 5, step: 0.05 },
-      sunIntensity: { label: '方向光', min: 0, max: 5, step: 0.05 },
-      fogNear: { label: '霧起點 m', min: 0, max: 500, step: 5 },
-      fogFar: { label: '霧終點 m', min: 10, max: 1000, step: 5 },
-      clearColor: { label: '背景色', params: { view: 'color' } },
-    },
-    {
-      onChange: (key) => {
-        visuals.refresh(gridKeys.includes(key));
-        environment.apply();
-        renderer.setClearColor(GREYBOX_CONFIG.clearColor);
-      },
-    },
+  // 視覺（M1-09）：畫質預設、後處理、燈光、天空與霧、全息看板、材質；畫質切換與著色器預熱。
+  let warmupReport: WarmupReport | null = null;
+  let warmupRunning: Promise<void> | null = null;
+  const warmup = (reason: string): Promise<void> => {
+    const run = async (): Promise<void> => {
+      const report = await runWarmup({
+        renderer,
+        scene,
+        camera,
+        renderTarget: postfx.inputBuffer,
+        textures: library.textures.textures(),
+      });
+      // 陰影深度材質與後處理的全螢幕材質在第一次 render 時編譯：先畫一個畫面。
+      postfx.draw(0);
+      report.programs = renderer.info.programs?.length ?? report.programs;
+      warmupReport = report;
+      console.info(
+        `[shardwake] 著色器預熱（${reason}）：${report.materials} 個材質、${report.textures} 張貼圖、` +
+          `${report.programs} 個著色器程式、${report.ms.toFixed(0)} ms`,
+      );
+    };
+    const p = (warmupRunning ?? Promise.resolve()).then(run, run);
+    warmupRunning = p;
+    return p;
+  };
+  const applyQuality = (): void => {
+    const q = qualityPreset();
+    viewport.setRenderScale(q.renderScale);
+    lighting.applyQuality(q);
+    postfx.applyQuality(q);
+    void warmup('切換畫質');
+  };
+  settings.onChange((s, changed) => {
+    if (changed.includes('quality')) applyQuality();
+    if (changed.includes('chromaticAberration')) {
+      postfx.aberrationEnabled = s.chromaticAberration;
+      if (!s.chromaticAberration) postfx.aberration.clear();
+    }
+  });
+  bus.on('player:dash', () => postfx.pulseAberration(postfx.config.dashAberration, postfx.config.dashAberrationTime));
+  game.addSystem(
+    bindVisualPanel({
+      panel,
+      postfx,
+      lighting,
+      sky,
+      library,
+      scene,
+      renderer,
+      environment: ENVIRONMENT_CONFIG,
+      getQualityLevel: () => settings.get('quality'),
+      applyQuality,
+      warmup: () => void warmup('手動'),
+      getWarmupReport: () => warmupReport,
+    }),
   );
-  for (const def of Object.values(GREYBOX_MATERIALS)) {
-    panel.bindConfig(
-      '關卡/灰盒顏色',
-      def,
-      { color: { label: def.label, params: { view: 'color' } } },
-      { onChange: () => visuals.refresh() },
-    );
-  }
 
   // 輸入：可調數值與監看。
   panel.bindConfig('輸入/滑鼠', INPUT_CONFIG, {
@@ -474,12 +506,18 @@ async function boot(): Promise<void> {
         ...{ game, bus, settings, storage, viewport, panel, lifecycle, camera, renderer },
         ...{ input, bindings, pointerLock, lockFlow },
         ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope, cameraRig, speedLines },
+        ...{ postfx, lighting, sky, library, getWarmupReport: () => warmupReport, warmup },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
   };
   window.addEventListener('hashchange', exposeDebug);
   exposeDebug();
+
+  // 著色器預熱（M1-09）：相機先放到出生點眼睛位置，編譯場景與預熱清單、上傳貼圖、畫一個畫面，完成後才顯示標題。
+  camera.position.set(spawn.pos.x, spawn.pos.y + 1.6, spawn.pos.z);
+  camera.rotation.set(0, spawn.yaw, 0, 'YXZ');
+  await warmup('載入');
 
   game.setMode('title');
   syncMode(game.mode);
