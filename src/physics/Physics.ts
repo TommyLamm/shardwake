@@ -250,6 +250,69 @@ export class Physics {
   }
 
   /**
+   * 射線穿透查詢：回傳射線在 maxDist 內穿過的所有碰撞體數量（每個碰撞體一筆、依距離由近到遠排序），
+   * 結果放在 rayAllResults 的前 n 筆（重複使用；下一次 raycastAll 會覆寫）。武器穿透（M1-10）使用。
+   */
+  raycastAll(
+    origin: Readonly<Vec3Like>,
+    dir: Readonly<Vec3Like>,
+    maxDist: number,
+    mask: number = QueryMask.hitscan,
+    filterFlags: number = RAPIER.QueryFilterFlags.EXCLUDE_SENSORS,
+  ): number {
+    const len = Math.hypot(dir.x, dir.y, dir.z);
+    if (len < 1e-9 || !(maxDist > 0)) return 0;
+    this.beforeQuery();
+    const ray = this.ray;
+    ray.origin.x = origin.x;
+    ray.origin.y = origin.y;
+    ray.origin.z = origin.z;
+    ray.dir.x = dir.x / len;
+    ray.dir.y = dir.y / len;
+    ray.dir.z = dir.z / len;
+    this.rayAllCount = 0;
+    this._world.intersectionsWithRay(ray, maxDist, true, this.collectRayAll, filterFlags, queryGroups(mask));
+    const n = this.rayAllCount;
+    const list = this.rayAllList;
+    // 插入排序（筆數很少）。
+    for (let i = 1; i < n; i++) {
+      const cur = list[i]!;
+      let j = i - 1;
+      while (j >= 0 && list[j]!.distance > cur.distance) {
+        list[j + 1] = list[j]!;
+        j--;
+      }
+      list[j + 1] = cur;
+    }
+    return n;
+  }
+
+  /** raycastAll 的結果（前 n 筆有效；物件重複使用）。 */
+  get rayAllResults(): readonly PhysicsHit[] {
+    return this.rayAllList;
+  }
+
+  private readonly rayAllList: MutableHit[] = [];
+  private rayAllCount = 0;
+  private readonly collectRayAll = (hit: RAPIER.RayColliderIntersection): boolean => {
+    const list = this.rayAllList;
+    if (this.rayAllCount >= list.length) list.push(Physics.makeHit());
+    const out = list[this.rayAllCount++]!;
+    const ray = this.ray;
+    const t = hit.timeOfImpact;
+    out.point.x = ray.origin.x + ray.dir.x * t;
+    out.point.y = ray.origin.y + ray.dir.y * t;
+    out.point.z = ray.origin.z + ray.dir.z * t;
+    out.normal.x = hit.normal.x;
+    out.normal.y = hit.normal.y;
+    out.normal.z = hit.normal.z;
+    out.collider = hit.collider;
+    out.distance = t;
+    out.surface = this.surfaces.get(hit.collider.handle);
+    return true;
+  };
+
+  /**
    * 形狀掃掠：把 shape 從 from 沿 dir 移動最多 maxDist，回傳第一個命中（point／normal 在被命中的碰撞體上）。
    * 起點已經重疊時（stopAtPenetration = true）回傳 distance 0。
    */

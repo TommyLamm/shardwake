@@ -119,6 +119,8 @@ export interface PlayerControllerOptions {
   setToggle?: (action: 'grapple', on: boolean) => void;
   /** 每個渲染畫面的視角（準星輔助用，例如 input.view 的 viewYaw／viewPitch）；省略時用 InputFrame 的視角。 */
   getAim?: () => { yaw: number; pitch: number };
+  /** 地面目標速度（跑、衝刺、蹲走）的倍率，例如開鏡時的 adsMoveSpeedMult（M1-10）；省略時為 1。 */
+  getMoveSpeedScale?: () => number;
 }
 
 /** 這一步讀到的輸入（狀態與轉換規則使用）。 */
@@ -227,6 +229,8 @@ export class PlayerController implements GameSystem {
   headBlocked = false;
   /** Rapier 角色控制器回報的著地（除錯顯示）。 */
   controllerGrounded = false;
+  /** 等待套用的速度衝量（addImpulse）。 */
+  private readonly pendingImpulse = { x: 0, y: 0, z: 0 };
   /** 這一步的重力（套用時記錄，用來做梯形積分修正）。 */
   private gravityThisStep = 0;
   private footstepAccum = 0;
@@ -380,6 +384,7 @@ export class PlayerController implements GameSystem {
     this.position.set(feet.x, feet.y + this.config.skinOffset * 2, feet.z);
     this.state.previousPosition.copy(this.position);
     this.velocity.set(0, 0, 0);
+    this.pendingImpulse.x = this.pendingImpulse.y = this.pendingImpulse.z = 0;
     this.grounded = false;
     this.coyoteAvailable = false;
     this.jumpBuffer.clear();
@@ -460,6 +465,7 @@ export class PlayerController implements GameSystem {
     abilitiesPreStep(this, dt);
     this.machine.evaluate('pre');
     this.machine.step(dt);
+    this.applyPendingImpulse();
     const wasGrounded = this.grounded;
     const fallSpeed = Math.max(0, -this.velocity.y);
     this.preMoveVelocity.copy(this.velocity);
@@ -491,11 +497,22 @@ export class PlayerController implements GameSystem {
 
   // ── 狀態使用的工具 ─────────────────────────────────────
 
-  /** 地面的目標速度（蹲走／跑／衝刺）。 */
+  /** 地面的目標速度（蹲走／跑／衝刺），乘上 getMoveSpeedScale（開鏡減速）。 */
   groundWishSpeed(): number {
     const cfg = this.config;
-    if (this.crouchTarget) return cfg.crouchSpeed;
-    return this.isSprinting() ? cfg.sprintSpeed : cfg.runSpeed;
+    const scale = this.options.getMoveSpeedScale?.() ?? 1;
+    if (this.crouchTarget) return cfg.crouchSpeed * scale;
+    return (this.isSprinting() ? cfg.sprintSpeed : cfg.runSpeed) * scale;
+  }
+
+  /**
+   * 速度衝量（M1-10 的爆炸自身擊退、火箭跳）：在下一步的狀態 step 之後加到速度上。
+   * 有向上的分量時這一步不算著地（地面狀態不會把垂直速度歸零，下一步轉為空中）。
+   */
+  addImpulse(dv: Readonly<Vec3Like>): void {
+    this.pendingImpulse.x += dv.x;
+    this.pendingImpulse.y += dv.y;
+    this.pendingImpulse.z += dv.z;
   }
 
   /** 是否符合衝刺條件（站姿、方向在正前方錐形內、沒開火或開鏡；手動模式要按住衝刺鍵）。 */
@@ -919,6 +936,23 @@ export class PlayerController implements GameSystem {
   }
 
   // ── 內部 ───────────────────────────────────────────────
+
+  private applyPendingImpulse(): void {
+    const p = this.pendingImpulse;
+    if (p.x === 0 && p.y === 0 && p.z === 0) return;
+    this.velocity.x += p.x;
+    this.velocity.y += p.y;
+    this.velocity.z += p.z;
+    // 往上的衝量：這一步離地（與起跳相同的判定，地面探測不會把它算成著地、貼地不會拉回去）。
+    if (p.y > GROUNDED_MAX_RISE_SPEED) {
+      this.jumpedThisStep = true;
+      this.coyoteAvailable = false;
+      this.grounded = false;
+    }
+    p.x = 0;
+    p.y = 0;
+    p.z = 0;
+  }
 
   private readInput(dt: number): void {
     const f = this.options.getFrame();

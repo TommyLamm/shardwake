@@ -1,6 +1,7 @@
 // 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬；
 // M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）、
-// 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）。
+// 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）、
+// 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
@@ -36,6 +37,10 @@ import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
 import { bindMovementPanel } from '@/player/MovementPanel';
 import { PlayerController } from '@/player/PlayerController';
+import { makeHitbox, registerHitbox } from '@/combat/Damage';
+import { Ballistics } from '@/weapons/Ballistics';
+import { WeaponManager } from '@/weapons/WeaponManager';
+import { bindWeaponPanel } from '@/weapons/WeaponPanel';
 import { StartOverlay } from '@/ui/StartOverlay';
 import { DataLevel, LevelManager } from '@/world/Level';
 import { SceneLighting } from '@/world/Lighting';
@@ -167,6 +172,8 @@ async function boot(): Promise<void> {
   const levels = new LevelManager({ physics, scene, visuals: library, bus });
   const currentDataLevel = (): DataLevel | null => (levels.current instanceof DataLevel ? levels.current : null);
   const feet = new THREE.Vector3();
+  // 武器系統在玩家之後建立；玩家的開鏡減速讀它（M1-10）。
+  let weaponsRef: WeaponManager | null = null;
   const player = new PlayerController({
     physics,
     bus,
@@ -177,6 +184,7 @@ async function boot(): Promise<void> {
     // 抓鉤脫鉤／落空後關掉「切換模式」的狀態；準星輔助用每畫面的視角。
     setToggle: (action, on) => input.builder.setToggle(action, on),
     getAim: () => aimView,
+    getMoveSpeedScale: () => weaponsRef?.moveSpeedScale ?? 1,
   });
   const aimView = {
     get yaw(): number {
@@ -252,6 +260,43 @@ async function boot(): Promise<void> {
     getPlayer: () => (player.enabled ? player.state : null),
   });
   game.addSystem(cameraRig);
+  // 武器（M1-10）：射擊起點是玩家這一步的眼睛，視線用 input.view（含後座偏移）；開鏡縮放寫入 CameraRig.fovZoom。
+  const ballistics = new Ballistics({
+    physics,
+    bus,
+    getPlayerCenter: (out) => {
+      if (!player.enabled) return null;
+      out.x = player.position.x;
+      out.y = player.position.y + player.height / 2;
+      out.z = player.position.z;
+      return out;
+    },
+    applyPlayerImpulse: (dv) => player.addImpulse(dv),
+  });
+  const weapons = new WeaponManager({
+    getFrame: () => input.frame,
+    view: input.view,
+    getPlayer: () => (player.enabled ? player : null),
+    ballistics,
+    bus,
+    getSettings: () => settings.value,
+    setToggle: (action, on) => input.builder.setToggle(action, on),
+    mouse: input.mouse,
+    camera: cameraRig,
+  });
+  weaponsRef = weapons;
+  game.addSystem(weapons);
+  // 開火的鏡頭震動與 FOV 衝擊、爆炸震動與色差（viewmodel 後座與特效在 M1-11）。
+  bus.on('weapon:fire', ({ weaponId }) => {
+    const def = weapons.active?.def;
+    if (!def || def.id !== weaponId) return;
+    if (def.feel.trauma > 0) cameraRig.addTrauma(def.feel.trauma);
+    if (def.feel.fovKick !== 0) cameraRig.addFovKick(def.feel.fovKick, 0.18, 0.02);
+  });
+  bus.on('weapon:explosion', ({ point, radius, selfKnockback }) => {
+    cameraRig.addTraumaAt(point, 0.5, Math.max(1, radius) * 3);
+    if (selfKnockback > 0) postfx.pulseAberration(0.35, 0.2);
+  });
   game.addSystem(lighting);
   game.addSystem(sky);
   game.addSystem({
@@ -339,6 +384,9 @@ async function boot(): Promise<void> {
   });
   game.addSystem(speedLines);
   game.addSystem(bindCameraPanel(panel, cameraRig, speedLines));
+  // 武器（M1-10）：目前手持武器的所有欄位、系統參數、監看、匯出 JSON。
+  const weaponPanel = bindWeaponPanel({ panel, weapons, bus });
+  game.addSystem(weaponPanel);
   // 視覺（M1-09）：畫質預設、後處理、燈光、天空與霧、全息看板、材質；畫質切換與著色器預熱。
   let warmupReport: WarmupReport | null = null;
   let warmupRunning: Promise<void> | null = null;
@@ -507,6 +555,7 @@ async function boot(): Promise<void> {
         ...{ input, bindings, pointerLock, lockFlow },
         ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope, cameraRig, speedLines },
         ...{ postfx, lighting, sky, library, getWarmupReport: () => warmupReport, warmup },
+        ...{ weapons, ballistics, weaponPanel, combat: { registerHitbox, makeHitbox } },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

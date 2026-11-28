@@ -28,6 +28,8 @@ export interface Settings {
   adsMode: HoldToggle;
   /** 抓鉤：按住或切換（M1-03）。 */
   grappleMode: HoldToggle;
+  /** 開鏡靈敏度倍率（M1-10）：乘在依焦距換算的開鏡靈敏度上；1 = 開鏡前後畫面中的轉動感一致。 */
+  adsSensitivity: number;
   /** 自動衝刺（往前移動即衝刺）；關閉時改用手動衝刺鍵（M1-05 使用）。 */
   autoSprint: boolean;
   /** 水平 FOV（度），依畫面比例換算成垂直 FOV。 */
@@ -73,6 +75,7 @@ export const SETTINGS_SCHEMA = {
   crouchMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '蹲下' },
   adsMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '開鏡' },
   grappleMode: { type: 'enum', default: 'hold', options: ['hold', 'toggle'], optionLabels: ['按住', '切換'], label: '抓鉤' },
+  adsSensitivity: { type: 'number', default: 1, min: 0.2, max: 3, step: 0.05, label: '開鏡靈敏度倍率' },
   autoSprint: { type: 'boolean', default: true, label: '自動衝刺' },
   fovHorizontal: { type: 'number', default: 103, min: 80, max: 120, step: 1, label: '視野（水平 FOV）' },
   dynamicFov: { type: 'boolean', default: true, label: '動態視野' },

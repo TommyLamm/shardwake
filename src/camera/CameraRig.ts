@@ -112,6 +112,12 @@ export class CameraRig implements GameSystem {
     eyeOffset: 0,
   };
 
+  /**
+   * 開鏡縮放倍率（M1-10 的武器系統每畫面設定；1 = 不縮放）：最終 FOV = 2·atan(tan(FOV/2) / fovZoom)，
+   * 套用在動態 FOV 之後。不要直接寫 camera.fov（每畫面會被覆寫）。
+   */
+  fovZoom = 1;
+
   /** 插值後的腳底位置與最終眼睛位置（不含效果）。 */
   readonly feet = new THREE.Vector3();
   readonly eye = new THREE.Vector3();
@@ -263,6 +269,7 @@ export class CameraRig implements GameSystem {
     }
     const hFov = settings.fovHorizontal + (settings.dynamicFov ? this.dynamicFov + this.kicks.value : 0);
     resolveFov(hFov, cam.aspect, cfg.maxHorizontalFov, cfg.maxVerticalFov, this.fov);
+    if (this.fovZoom !== 1 && this.fovZoom > 0) applyZoom(this.fov, this.fovZoom);
 
     // ── 傾斜 ──
     const yaw = view.viewYaw;
@@ -372,4 +379,12 @@ export class CameraRig implements GameSystem {
       this.appliedFov = fov.vertical;
     }
   }
+}
+
+/** 開鏡縮放：兩軸的 tan(FOV/2) 都除以 zoom（畫面比例不變）。 */
+function applyZoom(fov: FovResult, zoom: number): void {
+  // FOV（度）→ 半角弧度：× π/360；半角弧度 → FOV（度）：÷ (π/360)。
+  const k = Math.PI / 360;
+  fov.horizontal = Math.atan(Math.tan(fov.horizontal * k) / zoom) / k;
+  fov.vertical = Math.atan(Math.tan(fov.vertical * k) / zoom) / k;
 }

@@ -1,6 +1,7 @@
 // 全遊戲的事件表（集中在這一個檔案）。之後每份計畫把自己的事件加在對應段落，
 // 事件名稱用「領域:動作」，payload 一律是普通物件（或 void），由 EventBus 同步派送。
 // 熱迴圈內每步都會發的事件，payload 應重複使用同一個物件，避免配置記憶體。
+import type { DamageInfo } from '@/combat/Damage';
 import type { Settings, SettingsKey } from '@/core/Settings';
 
 /** 遊戲模式：boot → title → playing ⇄ paused（paused／playing 可回 title）。 */
@@ -112,6 +113,92 @@ export interface GameEvents {
   'player:grappleAim': { available: boolean; distance: number };
   /** 能力恢復可用：Dash 回充一格、抓鉤冷卻結束、噴射燃料回滿。 */
   'player:abilityReady': { ability: 'dash' | 'grapple' | 'jet'; charges: number };
+
+  // ── weapons：武器（M1-10）──────────────────────────────
+  // viewmodel／特效／準星（M1-11）、靶標（M1-12）、音效（M1-13）、HUD（M1-14）使用；唯讀狀態見 weapons.state。
+  // payload 物件重複使用（同一步可能發好幾次，例如全自動補發、霰彈每顆彈丸）：要保存請自行複製。
+  /**
+   * 開火（每發一次，霰彈的所有彈丸算一發）。origin 為射擊起點（眼睛），dir 為中心方向（含後座偏移與整體散布）；
+   * spread 為這一發的散布半角（度）；recoil 為這一發加上的後座（度，視角慣例：pitch 往上、yaw 往左為正）。
+   */
+  'weapon:fire': {
+    weaponId: string;
+    slot: number;
+    shotId: number;
+    time: number;
+    origin: { x: number; y: number; z: number };
+    dir: { x: number; y: number; z: number };
+    pellets: number;
+    ammo: number;
+    mag: number;
+    spread: number;
+    ads: number;
+    mode: string;
+    firstShot: boolean;
+    recoilPitch: number;
+    recoilYaw: number;
+  };
+  /** hitscan 每顆彈丸一次（曳光、彈孔）：end 為終點；hitWorld 時 normal／surface 為命中的牆面；targets 為命中的目標數。 */
+  'weapon:hitscan': {
+    shotId: number;
+    weaponId: string;
+    pellet: number;
+    origin: { x: number; y: number; z: number };
+    end: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+    hitWorld: boolean;
+    surface: string | null;
+    targets: number;
+  };
+  /** 扣扳機但彈匣是空的（沒有自動換彈時；音效「喀」）。 */
+  'weapon:dryFire': { weaponId: string; slot: number };
+  /** 開始換彈；kind：tactical（還有彈）、empty（空倉）、shell（逐發裝填）；duration 為預計時間（s）。 */
+  'weapon:reloadStart': { weaponId: string; slot: number; kind: string; duration: number; ammo: number };
+  /** 逐發裝填：一發入膛。 */
+  'weapon:reloadShell': { weaponId: string; slot: number; ammo: number };
+  /**
+   * 換彈結束：completed（動作做完）或被取消（reason：swap、sprint、fire、melee、other）；refilled 表示彈匣已補（或已入膛至少一發）。
+   */
+  'weapon:reloadEnd': { weaponId: string; slot: number; completed: boolean; refilled: boolean; reason: string; ammo: number };
+  /**
+   * 切換武器：phase 'out'（開始收槍，duration = 收槍 + 掏槍總時間）、'in'（換成新槍、開始掏槍）、'done'（可以射擊）。
+   * slot 為 0..4。
+   */
+  'weapon:swap': {
+    phase: 'out' | 'in' | 'done';
+    fromId: string;
+    toId: string;
+    fromSlot: number;
+    toSlot: number;
+    duration: number;
+  };
+  /** 開鏡目標改變（active：開始開鏡／開始退出）；forced 表示被 Dash、攀爬、切槍、近戰強制退出。 */
+  'weapon:ads': { weaponId: string; active: boolean; forced: boolean };
+  /** 近戰：start（出手；lunge 表示有目標並突進）、hit（命中，damage 為傷害）、miss（沒打到）。 */
+  'weapon:melee': { phase: 'start' | 'hit' | 'miss'; lunge: boolean; damage: number };
+  /** 投射物生成、命中、逾時（音效與特效；外觀讀 ballistics.projectiles）。 */
+  'weapon:projectile': {
+    phase: 'spawn' | 'impact' | 'expire';
+    id: number;
+    shotId: number;
+    weaponId: string;
+    position: { x: number; y: number; z: number };
+    velocity: { x: number; y: number; z: number };
+  };
+  /** 爆炸（投射物命中）：targets 為受到範圍傷害的目標數，selfKnockback 為玩家受到的擊退速度（m/s；0 = 不在範圍內）。 */
+  'weapon:explosion': {
+    shotId: number;
+    weaponId: string;
+    point: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+    radius: number;
+    targets: number;
+    selfKnockback: number;
+  };
+
+  // ── combat：傷害（M1-10 發出，M1-12 受擊回饋）───────────
+  /** 每一筆傷害（每顆彈丸、每次範圍傷害、每次近戰）；欄位見 combat/Damage.ts 的 DamageInfo。 */
+  'combat:damage': DamageInfo;
 
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */
