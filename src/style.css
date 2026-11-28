@@ -149,3 +149,163 @@ body {
 .sw-overlay-notes:empty {
   display: none;
 }
+
+/* 動態準星（M1-11；M1-14 組合進 HUD）。半徑由 --sw-ch-r（px）控制，精確反映散布。 */
+.sw-crosshair {
+  --sw-ch-r: 0px;
+  --sw-ch-gap: 3px;
+  --sw-ch-th: 2px;
+  --sw-ch-len: 8px;
+  --sw-ch-dot: 3px;
+  --sw-ch-color: #e8fbff;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.sw-crosshair > i {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+}
+
+.sw-crosshair.sw-ch-outline > i {
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 85%));
+}
+
+.sw-ch-line {
+  background: var(--sw-ch-color);
+}
+
+.sw-ch-up,
+.sw-ch-down {
+  width: var(--sw-ch-th);
+  height: var(--sw-ch-len);
+  left: calc(var(--sw-ch-th) / -2);
+}
+
+.sw-ch-up {
+  bottom: var(--sw-ch-gap);
+}
+
+.sw-ch-down {
+  top: var(--sw-ch-gap);
+}
+
+.sw-ch-left,
+.sw-ch-right {
+  width: var(--sw-ch-len);
+  height: var(--sw-ch-th);
+  top: calc(var(--sw-ch-th) / -2);
+}
+
+.sw-ch-left {
+  right: var(--sw-ch-gap);
+}
+
+.sw-ch-right {
+  left: var(--sw-ch-gap);
+}
+
+.sw-ch-ring {
+  width: calc(var(--sw-ch-r) * 2);
+  height: calc(var(--sw-ch-r) * 2);
+  left: calc(var(--sw-ch-r) * -1);
+  top: calc(var(--sw-ch-r) * -1);
+  border: max(1px, calc(var(--sw-ch-th) * 0.75)) solid var(--sw-ch-color);
+  border-radius: 50%;
+}
+
+.sw-ch-dot {
+  width: var(--sw-ch-dot);
+  height: var(--sw-ch-dot);
+  left: calc(var(--sw-ch-dot) / -2);
+  top: calc(var(--sw-ch-dot) / -2);
+  background: var(--sw-ch-color);
+  border-radius: 50%;
+}
+
+.sw-crosshair[data-style='cross'] > .sw-ch-line,
+.sw-crosshair[data-style='circle'] > .sw-ch-ring,
+.sw-crosshair[data-style='circle'] > .sw-ch-dot,
+.sw-crosshair[data-style='dot'] > .sw-ch-dot {
+  display: block;
+}
+
+/* 點樣式：散布大時（例如狙擊腰射）以淡色圓圈顯示散布。 */
+.sw-crosshair[data-style='dot'] > .sw-ch-ring {
+  display: block;
+  opacity: 0.35;
+  border-width: 1px;
+}
+
+/* 狙擊鏡遮罩（M1-11）：圓形視野外全黑，十字分劃與中心點。 */
+.sw-scope {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 0, transparent 43vmin, rgb(0 0 0 / 97%) calc(43vmin + 2px));
+}
+
+.sw-scope[hidden] {
+  display: none;
+}
+
+.sw-scope-lens {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 86vmin;
+  height: 86vmin;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: inset 0 0 6vmin rgb(0 10 20 / 75%);
+}
+
+.sw-scope-lens > i {
+  position: absolute;
+  display: block;
+}
+
+.sw-scope-h {
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: linear-gradient(90deg, rgb(0 0 0 / 90%) 0 38%, transparent 38% 47%, rgb(20 30 36 / 85%) 47% 53%, transparent 53% 62%, rgb(0 0 0 / 90%) 62%);
+}
+
+.sw-scope-v {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: linear-gradient(180deg, rgb(0 0 0 / 90%) 0 38%, transparent 38% 47%, rgb(20 30 36 / 85%) 47% 53%, transparent 53% 62%, rgb(0 0 0 / 90%) 62%);
+}
+
+.sw-scope-ring {
+  left: 50%;
+  top: 50%;
+  width: 18vmin;
+  height: 18vmin;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgb(127 240 255 / 35%);
+  border-radius: 50%;
+}
+
+.sw-scope-dot {
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #7ff0ff;
+  box-shadow: 0 0 6px #7ff0ff;
+}

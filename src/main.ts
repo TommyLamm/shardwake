@@ -1,7 +1,8 @@
 // 進入點：建立核心執行框架（M1-02）、輸入系統（M1-03）、物理與灰盒訓練場（M1-04）、玩家控制器（M1-05；M1-06 跑牆與攀爬；
 // M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）、
 // 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）、
-// 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）。
+// 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）、
+// 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
@@ -31,7 +32,8 @@ import { GrappleRope } from '@/fx/GrappleRope';
 import { PostFX } from '@/fx/PostFX';
 import { SpeedLines } from '@/fx/SpeedLines';
 import { bindVisualPanel } from '@/fx/VisualPanel';
-import { runWarmup, type WarmupReport } from '@/fx/Warmup';
+import { registerWarmup, runWarmup, type WarmupReport } from '@/fx/Warmup';
+import { WeaponFx } from '@/fx/WeaponFx';
 import { PHYSICS_CONFIG } from '@/physics/config';
 import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
@@ -41,6 +43,10 @@ import { makeHitbox, registerHitbox } from '@/combat/Damage';
 import { Ballistics } from '@/weapons/Ballistics';
 import { WeaponManager } from '@/weapons/WeaponManager';
 import { bindWeaponPanel } from '@/weapons/WeaponPanel';
+import { Viewmodel } from '@/weapons/Viewmodel';
+import { bindPresentationPanel } from '@/weapons/ViewmodelPanel';
+import { Crosshair, crosshairStyleFor, effectiveSpreadDeg, type CrosshairInput } from '@/ui/Crosshair';
+import { ScopeOverlay } from '@/ui/ScopeOverlay';
 import { StartOverlay } from '@/ui/StartOverlay';
 import { DataLevel, LevelManager } from '@/world/Level';
 import { SceneLighting } from '@/world/Lighting';
@@ -286,7 +292,7 @@ async function boot(): Promise<void> {
   });
   weaponsRef = weapons;
   game.addSystem(weapons);
-  // 開火的鏡頭震動與 FOV 衝擊、爆炸震動與色差（viewmodel 後座與特效在 M1-11）。
+  // 開火的鏡頭震動與 FOV 衝擊、爆炸震動與色差（viewmodel 後座與特效在下方的 Viewmodel／WeaponFx）。
   bus.on('weapon:fire', ({ weaponId }) => {
     const def = weapons.active?.def;
     if (!def || def.id !== weaponId) return;
@@ -297,6 +303,60 @@ async function boot(): Promise<void> {
     cameraRig.addTraumaAt(point, 0.5, Math.max(1, radius) * 3);
     if (selfKnockback > 0) postfx.pulseAberration(0.35, 0.2);
   });
+  // ── 武器表現（M1-11）──────────────────────────────────
+  // Viewmodel：獨立場景與相機（固定 FOV），PostFX 在世界之後清深度再畫（不穿牆、仍有 Bloom）；整個場景加入預熱。
+  const viewmodel = new Viewmodel({
+    weapons,
+    getPlayer: () => (player.enabled ? player : null),
+    view: input.view,
+    worldCamera: camera,
+    bus,
+    getStepDt: () => 1 / game.loop.config.hz,
+    lights: lighting,
+    envSource: scene,
+  });
+  viewmodel.scene.environment = scene.environment;
+  viewmodel.scene.environmentIntensity = scene.environmentIntensity;
+  postfx.addViewmodelPass(viewmodel.scene, viewmodel.camera);
+  registerWarmup(viewmodel.scene);
+  game.addSystem(viewmodel);
+  // 特效池：曳光、命中火花、彈孔、電漿球、爆炸與固定的世界點光源（建構時加入世界場景，載入預熱一起編譯）。
+  const archetypeOf = (weaponId: string): string | undefined => weapons.slots.find((w) => w?.id === weaponId)?.def.archetype;
+  const weaponFx = new WeaponFx({
+    scene,
+    bus,
+    muzzle: viewmodel,
+    ballistics,
+    getArchetype: archetypeOf,
+    getQuality: () => settings.get('quality'),
+  });
+  registerWarmup(weaponFx.root);
+  game.addSystem(weaponFx);
+  bus.on('level:unloaded', () => weaponFx.clear());
+  // 準星（M1-14 組合進 HUD）與狙擊鏡遮罩。
+  const crosshairInput: CrosshairInput = { visible: false, style: 'cross', spreadDeg: 0, vFovDeg: 70, ads: 0, scope: 0 };
+  const crosshair = new Crosshair({
+    container: app,
+    getHeight: () => viewport.height,
+    getInput: () => {
+      const w = weapons.active;
+      const ci = crosshairInput;
+      ci.visible = Boolean(w) && player.enabled && game.mode === 'playing';
+      if (!w) return ci;
+      ci.style = crosshairStyleFor(w.def.archetype);
+      ci.spreadDeg = effectiveSpreadDeg(w.def, weapons.currentSpread());
+      ci.vFovDeg = camera.fov;
+      ci.ads = viewmodel.state.ads;
+      ci.scope = viewmodel.state.scope;
+      return ci;
+    },
+  });
+  game.addSystem(crosshair);
+  const scopeOverlay = new ScopeOverlay({
+    container: app,
+    getAmount: () => (player.enabled && game.mode !== 'title' ? viewmodel.state.scope : 0),
+  });
+  game.addSystem(scopeOverlay);
   game.addSystem(lighting);
   game.addSystem(sky);
   game.addSystem({
@@ -387,6 +447,8 @@ async function boot(): Promise<void> {
   // 武器（M1-10）：目前手持武器的所有欄位、系統參數、監看、匯出 JSON。
   const weaponPanel = bindWeaponPanel({ panel, weapons, bus });
   game.addSystem(weaponPanel);
+  // 武器表現（M1-11）：viewmodel 擺位與動畫、特效、準星、監看與測試。
+  game.addSystem(bindPresentationPanel({ panel, viewmodel, fx: weaponFx, crosshair, camera }));
   // 視覺（M1-09）：畫質預設、後處理、燈光、天空與霧、全息看板、材質；畫質切換與著色器預熱。
   let warmupReport: WarmupReport | null = null;
   let warmupRunning: Promise<void> | null = null;
@@ -556,6 +618,7 @@ async function boot(): Promise<void> {
         ...{ physics, levels, freeCam, levelDebug, scene, player, movementDebug, grappleRope, cameraRig, speedLines },
         ...{ postfx, lighting, sky, library, getWarmupReport: () => warmupReport, warmup },
         ...{ weapons, ballistics, weaponPanel, combat: { registerHitbox, makeHitbox } },
+        ...{ viewmodel, weaponFx, crosshair, scopeOverlay },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

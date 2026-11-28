@@ -153,13 +153,22 @@ export interface GameEvents {
   /** 扣扳機但彈匣是空的（沒有自動換彈時；音效「喀」）。 */
   'weapon:dryFire': { weaponId: string; slot: number };
   /** 開始換彈；kind：tactical（還有彈）、empty（空倉）、shell（逐發裝填）；duration 為預計時間（s）。 */
-  'weapon:reloadStart': { weaponId: string; slot: number; kind: string; duration: number; ammo: number };
+  'weapon:reloadStart': { weaponId: string; slot: number; kind: string; duration: number; ammo: number; time: number };
   /** 逐發裝填：一發入膛。 */
-  'weapon:reloadShell': { weaponId: string; slot: number; ammo: number };
+  'weapon:reloadShell': { weaponId: string; slot: number; ammo: number; time: number };
   /**
    * 換彈結束：completed（動作做完）或被取消（reason：swap、sprint、fire、melee、other）；refilled 表示彈匣已補（或已入膛至少一發）。
    */
-  'weapon:reloadEnd': { weaponId: string; slot: number; completed: boolean; refilled: boolean; reason: string; ammo: number };
+  'weapon:reloadEnd': {
+    weaponId: string;
+    slot: number;
+    completed: boolean;
+    refilled: boolean;
+    reason: string;
+    ammo: number;
+    /** 結束的模擬時間（s；M1-11 viewmodel 的換彈姿勢淡出從這裡起算）。reloadStart／reloadShell 的 time 同為模擬時間。 */
+    time: number;
+  };
   /**
    * 切換武器：phase 'out'（開始收槍，duration = 收槍 + 掏槍總時間）、'in'（換成新槍、開始掏槍）、'done'（可以射擊）。
    * slot 為 0..4。

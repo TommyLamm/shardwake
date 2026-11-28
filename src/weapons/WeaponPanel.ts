@@ -144,6 +144,9 @@ export const WEAPON_FIELD_GROUPS: readonly { folder: string; fields: readonly We
       { path: 'model.muzzle.0', spec: n('槍口 右 m', -0.5, 0.5, 0.005) },
       { path: 'model.muzzle.1', spec: n('槍口 上 m', -0.5, 0.5, 0.005) },
       { path: 'model.muzzle.2', spec: n('槍口 前 m', -2, 0.5, 0.005) },
+      { path: 'model.adsOffset.0', spec: n('開鏡對位 右 m', -0.2, 0.2, 0.001, '瞄具對到畫面中心後的微調') },
+      { path: 'model.adsOffset.1', spec: n('開鏡對位 上 m', -0.2, 0.2, 0.001) },
+      { path: 'model.adsOffset.2', spec: n('開鏡對位 前 m', -0.2, 0.3, 0.001, '正值 = 槍離眼睛更遠') },
     ],
   },
 ];
@@ -182,6 +185,8 @@ export function writeWeaponField(def: WeaponDef, path: string, value: unknown): 
     def.ammo.reserve = typeof value === 'number' && value >= 0 ? Math.floor(value) : 'infinite';
     return true;
   }
+  // 選填的開鏡對位（M1-11）：沒有時先補 [0, 0, 0]。
+  if (segs[0] === 'model' && segs[1] === 'adsOffset' && !def.model.adsOffset) def.model.adsOffset = [0, 0, 0];
   let cur: Record<string, unknown> = def as unknown as Record<string, unknown>;
   for (let i = 0; i < segs.length - 1; i++) {
     const next = cur[segs[i]!];

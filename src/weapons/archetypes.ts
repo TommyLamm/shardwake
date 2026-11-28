@@ -54,6 +54,7 @@ export const ASSAULT_RIFLE: WeaponDef = {
     stock: true,
     colors: { body: '#2a3140', accent: '#5d6b80', glow: '#33e6ff' },
     muzzle: [0, 0.02, -0.62],
+    adsOffset: [0, 0, 0],
   },
   perks: NO_PERKS,
 };
@@ -116,6 +117,7 @@ export const SCATTER_SHOTGUN: WeaponDef = {
     stock: true,
     colors: { body: '#30293a', accent: '#6e5a7a', glow: '#ff3fd2' },
     muzzle: [0, 0.025, -0.7],
+    adsOffset: [0, 0, 0.02],
   },
   perks: NO_PERKS,
 };
@@ -157,6 +159,7 @@ export const HAND_CANNON: WeaponDef = {
     stock: false,
     colors: { body: '#3a3330', accent: '#8a6a4a', glow: '#ff8a2a' },
     muzzle: [0, 0.03, -0.42],
+    adsOffset: [0, 0, 0.04],
   },
   perks: NO_PERKS,
 };
@@ -198,6 +201,7 @@ export const RAIL_SNIPER: WeaponDef = {
     stock: true,
     colors: { body: '#1f2a33', accent: '#4a6070', glow: '#7ff0ff' },
     muzzle: [0, 0.02, -0.95],
+    adsOffset: [0, 0, 0],
   },
   perks: NO_PERKS,
 };
@@ -250,6 +254,7 @@ export const PLASMA_LAUNCHER: WeaponDef = {
     stock: false,
     colors: { body: '#262b36', accent: '#5a4a7a', glow: '#b36bff' },
     muzzle: [0, 0.03, -0.7],
+    adsOffset: [0, -0.004, 0.02],
   },
   perks: NO_PERKS,
 };

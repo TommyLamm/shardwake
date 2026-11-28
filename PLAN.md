@@ -29,7 +29,7 @@
 | [M1-08](docs/plans/M1-08-camera-feel.md) | 鏡頭手感 | M1-05 | 完成 |
 | [M1-09](docs/plans/M1-09-visual-style.md) | 視覺風格與後處理 | M1-04 | 完成 |
 | [M1-10](docs/plans/M1-10-weapon-core.md) | 武器核心邏輯 | M1-05 | 完成 |
-| [M1-11](docs/plans/M1-11-weapon-presentation.md) | 武器表現：Viewmodel、特效、準星 ★ | M1-09、M1-10 | 未開始 |
+| [M1-11](docs/plans/M1-11-weapon-presentation.md) | 武器表現：Viewmodel、特效、準星 ★ | M1-09、M1-10 | 完成 |
 | [M1-12](docs/plans/M1-12-targets-feedback.md) | 靶標、玩家受擊與戰鬥回饋 | M1-10 | 未開始 |
 | [M1-13](docs/plans/M1-13-audio.md) | 程序合成音效 | M1-02 | 未開始 |
 | [M1-14](docs/plans/M1-14-hud-menus.md) | HUD、選單與設定 | M1-07、M1-12 | 未開始 |

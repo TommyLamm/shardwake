@@ -154,8 +154,15 @@ export interface WeaponModelDef {
   optic: 'none' | 'reflex' | 'scope';
   stock: boolean;
   colors: { body: string; accent: string; glow: string };
-  /** 槍口位置（viewmodel 座標，m，[右, 上, 前為負]）：曳光與槍口閃光起點。 */
+  /** 槍口位置（viewmodel 座標，m，[右, 上, 前為負]）：曳光與槍口閃光起點。槍管沿 -Z 由機匣前端延伸到這裡。 */
   muzzle: [number, number, number];
+  /**
+   * 開鏡對位的微調（m，[右, 上, 前]；M1-11）：開鏡時把瞄具中心對到畫面中心後再加上這個偏移
+   * （正的「前」= 槍離眼睛更遠）。省略時為 [0, 0, 0]。
+   */
+  adsOffset?: [number, number, number];
+  /** 廠商（M2-01：每家廠商一套部件風格；WeaponModelFactory 依此選擇風格，未知或省略時用預設風格）。 */
+  manufacturer?: string;
 }
 
 /** perk 參照（M2-02 填入實作；hook 介面見 perks.ts）。 */
@@ -365,6 +372,9 @@ export function validateWeaponDef(def: unknown): ValidationResult {
   checkTriple(def, 'feel.viewKick.rot', errors);
   if (typeof get(def, 'audio.params') !== 'object' || get(def, 'audio.params') === null) errors.push('audio.params 必須是物件');
   checkTriple(def, 'model.muzzle', errors);
+  if (get(def, 'model.adsOffset') !== undefined) checkTriple(def, 'model.adsOffset', errors);
+  const maker = get(def, 'model.manufacturer');
+  if (maker !== undefined && typeof maker !== 'string') errors.push('model.manufacturer 必須是字串');
   for (const c of ['body', 'accent', 'glow']) {
     const v = get(def, `model.colors.${c}`);
     if (typeof v !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(v)) errors.push(`model.colors.${c} 必須是 #rrggbb`);

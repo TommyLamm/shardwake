@@ -225,31 +225,33 @@ export class WeaponManager implements GameSystem {
         recoilYaw: 0,
       },
       dry: { weaponId: '', slot: 0 },
-      reloadStart: { weaponId: '', slot: 0, kind: 'tactical', duration: 0, ammo: 0 },
-      reloadShell: { weaponId: '', slot: 0, ammo: 0 },
-      reloadEnd: { weaponId: '', slot: 0, completed: false, refilled: false, reason: 'done', ammo: 0 },
+      reloadStart: { weaponId: '', slot: 0, kind: 'tactical', duration: 0, ammo: 0, time: 0 },
+      reloadShell: { weaponId: '', slot: 0, ammo: 0, time: 0 },
+      reloadEnd: { weaponId: '', slot: 0, completed: false, refilled: false, reason: 'done', ammo: 0, time: 0 },
       swap: { phase: 'out', fromId: '', toId: '', fromSlot: 0, toSlot: 0, duration: 0 },
       ads: { weaponId: '', active: false, forced: false },
       melee: { phase: 'start', lunge: false, damage: 0 },
     };
     this.listener = {
-      reloadStart: (w, kind, duration) => {
+      reloadStart: (w, kind, duration, time) => {
         const e = this.ev.reloadStart;
         e.weaponId = w.id;
         e.slot = this.slotOf(w);
         e.kind = kind;
         e.duration = duration;
         e.ammo = w.ammo;
+        e.time = time;
         this.options.bus?.emit('weapon:reloadStart', e);
       },
-      reloadShell: (w) => {
+      reloadShell: (w, time) => {
         const e = this.ev.reloadShell;
         e.weaponId = w.id;
         e.slot = this.slotOf(w);
         e.ammo = w.ammo;
+        e.time = time;
         this.options.bus?.emit('weapon:reloadShell', e);
       },
-      reloadEnd: (w, completed, refilled, reason) => {
+      reloadEnd: (w, completed, refilled, reason, time) => {
         const e = this.ev.reloadEnd;
         e.weaponId = w.id;
         e.slot = this.slotOf(w);
@@ -257,6 +259,7 @@ export class WeaponManager implements GameSystem {
         e.refilled = refilled;
         e.reason = reason;
         e.ammo = w.ammo;
+        e.time = time;
         this.options.bus?.emit('weapon:reloadEnd', e);
       },
       dryFire: (w) => {

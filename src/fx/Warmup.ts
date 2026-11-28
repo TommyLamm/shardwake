@@ -6,6 +6,8 @@
 //   場景經後處理畫進 HalfFloat buffer（線性、無色調映射），所以預熱時要先 setRenderTarget(後處理的輸入 buffer)，
 //   否則編出來的是直接畫到畫面的版本，實際渲染時仍會重新編譯。runWarmup() 的 renderTarget 參數處理這件事。
 // - 陰影深度材質與後處理的全螢幕材質在第一次 render 時才編譯；runWarmup() 之後再畫一個畫面（呼叫端負責）。
+// - 另一個場景（M1-11 的 viewmodel 場景有自己的燈光）也可以 registerWarmup(scene)：以那個場景自己的燈光與環境編譯，
+//   不套用主場景的燈光（否則編出來的燈光數量不同，實際渲染時仍會重新編譯）。
 import * as THREE from 'three';
 
 export type WarmupTarget = THREE.Material | THREE.Object3D;
@@ -48,6 +50,10 @@ function isMaterial(x: WarmupTarget): x is THREE.Material {
   return (x as THREE.Material).isMaterial === true;
 }
 
+function isScene(x: WarmupTarget): x is THREE.Scene {
+  return (x as THREE.Scene).isScene === true;
+}
+
 type Renderable = THREE.Mesh | THREE.Points | THREE.Line | THREE.Sprite;
 
 function isRenderable(o: THREE.Object3D): o is Renderable {
@@ -72,6 +78,8 @@ export function buildWarmupProxies(targets: readonly WarmupTarget[], proxyGeomet
   const group = new THREE.Group();
   group.name = 'warmup:proxies';
   for (const t of targets) {
+    // 場景另外以它自己的燈光編譯（runWarmup）。
+    if (isScene(t)) continue;
     if (isMaterial(t)) {
       const m = new THREE.Mesh(proxyGeometry, t);
       m.receiveShadow = true;
@@ -145,9 +153,12 @@ export async function runWarmup(options: WarmupOptions): Promise<WarmupReport> {
   const registry = options.registry ?? shaderWarmup;
   const t0 = performance.now();
   proxyGeometry ??= createProxyGeometry();
-  const proxies = buildWarmupProxies(registry.list(), proxyGeometry);
+  const list = registry.list();
+  const proxies = buildWarmupProxies(list, proxyGeometry);
+  const extraScenes = list.filter(isScene).filter((s) => s !== scene);
   const materials = collectMaterials(scene);
   collectMaterials(proxies, materials);
+  for (const s of extraScenes) collectMaterials(s, materials);
   const textures = collectTextures(materials);
   for (const t of options.textures ?? []) textures.add(t);
   const prevTarget = renderer.getRenderTarget();
@@ -157,6 +168,7 @@ export async function runWarmup(options: WarmupOptions): Promise<WarmupReport> {
     for (const t of textures) renderer.initTexture(t);
     await renderer.compileAsync(scene, camera);
     if (proxies.children.length > 0) await renderer.compileAsync(proxies, camera, scene);
+    for (const s of extraScenes) await renderer.compileAsync(s, camera);
   } finally {
     renderer.setRenderTarget(prevTarget);
     proxies.clear();
@@ -172,7 +184,10 @@ export async function runWarmup(options: WarmupOptions): Promise<WarmupReport> {
 /** 全域預熱清單（M1-11 的 viewmodel 與特效材質用 registerWarmup 加入）。 */
 export const shaderWarmup = new WarmupRegistry();
 
-/** 把材質或物件加入預熱清單；回傳取消函式。下一次 runWarmup()（載入完成、切換畫質）時編譯。 */
+/**
+ * 把材質、物件或另一個場景加入預熱清單；回傳取消函式。下一次 runWarmup()（載入完成、切換畫質）時編譯。
+ * 材質與物件以主場景的燈光編譯；場景（例如 viewmodel 場景）以它自己的燈光編譯（含隱藏的物件）。
+ */
 export function registerWarmup(target: WarmupTarget): () => void {
   return shaderWarmup.register(target);
 }
