@@ -56,12 +56,14 @@ export interface Settings {
   damageNumberMerge: boolean;
   /** 訓練場的訓練無人機（M1-12；進入無人機戰區才啟動）。 */
   trainingDrones: boolean;
-  /** 主音量 0–1（M1-13 使用）。 */
+  /** 主音量 0–1（M1-13：AudioEngine 的 master 匯流排；增益 = 音量² × 混音修正）。 */
   masterVolume: number;
-  /** 音效音量 0–1。 */
+  /** 音效音量 0–1（sfx 匯流排）。 */
   sfxVolume: number;
-  /** 介面音量 0–1。 */
+  /** 介面音量 0–1（ui 匯流排；M1-14 的選單音效）。 */
   uiVolume: number;
+  /** 音樂音量 0–1（music 匯流排；音樂在 M5-06）。 */
+  musicVolume: number;
   /** 畫質預設：渲染比例、陰影、Bloom、SMAA（內容見 core/quality.ts）。 */
   quality: QualityLevel;
   /** 顯示畫面角落的 FPS／frame time。 */
@@ -100,6 +102,7 @@ export const SETTINGS_SCHEMA = {
   masterVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '主音量' },
   sfxVolume: { type: 'number', default: 1, min: 0, max: 1, step: 0.01, label: '音效音量' },
   uiVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '介面音量' },
+  musicVolume: { type: 'number', default: 0.7, min: 0, max: 1, step: 0.01, label: '音樂音量' },
   quality: {
     type: 'enum',
     default: 'high',

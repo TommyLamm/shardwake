@@ -3,11 +3,17 @@
 // 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）、
 // 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）、
 // 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）、
-// 靶標與戰鬥回饋（M1-12：PlayerHealth、TargetManager（假人、移動靶、訓練無人機、DPS 計看板）、命中標記、傷害數字、受擊畫面回饋）。
+// 靶標與戰鬥回饋（M1-12：PlayerHealth、TargetManager（假人、移動靶、訓練無人機、DPS 計看板）、命中標記、傷害數字、受擊畫面回饋）、
+// 程序合成音效（M1-13：AudioEngine（玩家第一次操作才建立 AudioContext）、AudioEventBinder（事件 → 音效）、載入時預渲染）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
 import * as THREE from 'three';
+import { AUDIO_CONFIG } from '@/audio/AudioConfig';
+import { buildStressScenario, renderStress } from '@/audio/audioDiagnostics';
+import { AudioEngine } from '@/audio/AudioEngine';
+import { AudioEventBinder } from '@/audio/AudioEvents';
+import { bindAudioPanel } from '@/audio/AudioPanel';
 import { bindCameraPanel } from '@/camera/CameraPanel';
 import { CameraRig } from '@/camera/CameraRig';
 import { FREE_CAMERA_CONFIG, FreeCamera } from '@/camera/FreeCamera';
@@ -603,6 +609,54 @@ async function boot(): Promise<void> {
     getYaw: () => input.view.viewYaw,
   });
   game.addSystem(combatPanel);
+  // ── 音效（M1-13）──────────────────────────────────────
+  // AudioContext 在玩家第一次操作（點擊、按鍵）時才建立；Web Audio 不可用時以靜音進行。各系統只發事件，由 AudioEventBinder 轉成音效。
+  const audio = new AudioEngine({ config: AUDIO_CONFIG });
+  const applyVolumes = (s: Readonly<Settings>): void =>
+    audio.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, ui: s.uiVolume, music: s.musicVolume });
+  applyVolumes(settings.value);
+  settings.onChange((s, changed) => {
+    if (changed.some((k) => k === 'masterVolume' || k === 'sfxVolume' || k === 'uiVolume' || k === 'musicVolume')) applyVolumes(s);
+  });
+  audio.attachUnlock(window);
+  const audioHealth = { healthFraction: 1, alive: true };
+  const audioEvents = new AudioEventBinder({
+    bus,
+    sink: audio,
+    config: AUDIO_CONFIG.events,
+    getWeaponDef: (id) => weapons.slots.find((w) => w?.id === id)?.def,
+    getPlayer: () => (player.enabled ? player.state : null),
+    getHealth: () => {
+      audioHealth.healthFraction = health.healthFraction;
+      audioHealth.alive = health.alive;
+      return audioHealth;
+    },
+    getMode: () => game.mode,
+    getProjectilePosition: (id, out) => {
+      let found = false;
+      ballistics.projectiles.forEachActive((p) => {
+        if (p.id !== id) return;
+        out.x = p.position.x;
+        out.y = p.position.y;
+        out.z = p.position.z;
+        found = true;
+      });
+      return found;
+    },
+    getReloadKeys: () => viewmodel.config,
+    emitters: AUDIO_CONFIG.voices.emitters,
+  });
+  game.addSystem(audioEvents);
+  // 聽者跟隨相機（CameraRig 在 camera 階段已放好位置與朝向）。
+  game.addSystem({
+    name: 'audioListener',
+    order: SystemOrder.audio,
+    render() {
+      audio.setListener(camera.position, camera.quaternion);
+    },
+  });
+  const weaponAudios = (): { fire: string; params: Record<string, number> }[] => weapons.slots.flatMap((w) => (w ? [w.def.audio] : []));
+  game.addSystem(bindAudioPanel({ panel, engine: audio, weaponAudios }));
   // 視覺（M1-09）：畫質預設、後處理、燈光、天空與霧、全息看板、材質；畫質切換與著色器預熱。
   let warmupReport: WarmupReport | null = null;
   let warmupRunning: Promise<void> | null = null;
@@ -774,6 +828,7 @@ async function boot(): Promise<void> {
         ...{ weapons, ballistics, weaponPanel, combat: { registerHitbox, makeHitbox } },
         ...{ viewmodel, weaponFx, crosshair, scopeOverlay },
         ...{ health, targets, hitConfirm, hitMarker, damageNumbers, damageOverlay, combatPanel, feedback },
+        ...{ audio, audioEvents, audioTools: { renderStress, buildStressScenario } },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
@@ -784,6 +839,8 @@ async function boot(): Promise<void> {
   // 著色器預熱（M1-09）：相機先放到出生點眼睛位置，編譯場景與預熱清單、上傳貼圖、畫一個畫面，完成後才顯示標題。
   camera.position.set(spawn.pos.x, spawn.pos.y + 1.6, spawn.pos.z);
   camera.rotation.set(0, spawn.yaw, 0, 'YXZ');
+  // 音效預渲染（M1-13）：純 JS 合成，分段讓出主執行緒；解鎖時再轉成 AudioBuffer。
+  await audio.prerender(weaponAudios());
   await warmup('載入');
 
   game.setMode('title');
