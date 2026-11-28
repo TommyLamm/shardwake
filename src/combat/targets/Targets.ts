@@ -13,6 +13,9 @@ import type { Physics, Vec3Like } from '@/physics/Physics';
 
 export type TargetKind = 'dummy' | 'mover' | 'drone';
 
+/** 碰撞體位置的暫存物件（setTranslation 不保存參考；熱迴圈不配置，M1-16）。 */
+const COLLIDER_POS: Vec3Like = { x: 0, y: 0, z: 0 };
+
 /** 擊殺時通知（TargetManager 發事件、特效）。 */
 export type KillHandler = (target: TrainingTarget, info: Readonly<DamageInfo>) => void;
 
@@ -90,7 +93,11 @@ export abstract class TrainingTarget implements Damageable {
     if (!p) return;
     for (const c of this.colliders) {
       if (c.generation !== p.generation) continue;
-      c.collider.setTranslation({ x: x + c.offset.x, y: y + c.offset.y, z: z + c.offset.z });
+      const t = COLLIDER_POS;
+      t.x = x + c.offset.x;
+      t.y = y + c.offset.y;
+      t.z = z + c.offset.z;
+      c.collider.setTranslation(t);
     }
   }
 
@@ -245,6 +252,8 @@ export class DroneTarget extends TrainingTarget {
   appear = 1;
   /** 累計開火數。 */
   shots = 0;
+  /** step() 的回傳物件（重複使用，呼叫端不保存）。 */
+  private readonly stepResult = { reset: false, fire: false };
 
   constructor(
     id: string,
@@ -348,13 +357,17 @@ export class DroneTarget extends TrainingTarget {
     this.life.rules.resetDelay = this.cfg.respawnTime;
     this.updateFlash(dt, this.flashCfg);
     this.appear = Math.min(1, this.appear + dt / 0.35);
-    if (!this.active) return { reset: false, fire: false };
+    const out = this.stepResult;
+    out.reset = false;
+    out.fire = false;
+    if (!this.active) return out;
     const ev = this.life.step(dt);
     if (ev === 'reset') {
       this.respawn();
-      return { reset: true, fire: false };
+      out.reset = true;
+      return out;
     }
-    if (!this.life.alive) return { reset: false, fire: false };
+    if (!this.life.alive) return out;
     const wasEngaged = this.engaged;
     this.engaged = player !== null;
     if (this.engaged && !wasEngaged) this.fireTimer = this.rng.range(this.cfg.firstShotMin, Math.max(this.cfg.firstShotMin, this.cfg.firstShotMax));
@@ -374,7 +387,8 @@ export class DroneTarget extends TrainingTarget {
       this.fireTimer -= dt;
       if (this.fireTimer <= 0) fire = true;
     }
-    return { reset: false, fire };
+    out.fire = fire;
+    return out;
   }
 
   /** 開火成功：下一發在 fireInterval 後；沒有視線時 losRetry 後重試。 */

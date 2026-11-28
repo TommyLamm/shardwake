@@ -59,9 +59,16 @@ let initialized = false;
 export class Physics {
   /** 初始化 Rapier WASM（只執行一次，可重複呼叫）。 */
   static init(): Promise<void> {
-    initPromise ??= RAPIER.init().then(() => {
-      initialized = true;
-    });
+    // 失敗時清掉快取的 Promise，下一次呼叫可以重試（M1-16）。
+    initPromise ??= RAPIER.init().then(
+      () => {
+        initialized = true;
+      },
+      (err: unknown) => {
+        initPromise = null;
+        throw err;
+      },
+    );
     return initPromise;
   }
 

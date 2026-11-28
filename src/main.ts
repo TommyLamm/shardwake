@@ -79,6 +79,10 @@ import { HelpScreen, PauseScreen, SCREEN, TitleScreen, type MenuActions } from '
 import { SettingsScreen } from '@/ui/menu/SettingsScreen';
 import { t } from '@/i18n';
 import { setupTuningTools } from '@/tools/TuningTools';
+import { COVER_CONFIG, COVER_PANEL, CoverMode, coverView } from '@/tools/cover';
+import { classifyError, FatalError, FrameGuard, probeWebGL2, runStage } from '@/core/errors';
+import { resolveQualityPreset } from '@/core/quality';
+import { BootScreen, ErrorScreen } from '@/ui/ErrorScreen';
 import demoClip from '@/debug/demo-clip.json';
 import { version as GAME_VERSION } from '../package.json';
 import { DataLevel, LevelManager } from '@/world/Level';
@@ -91,10 +95,10 @@ import './style.css';
 import './ui/hud.css';
 import './ui/menu.css';
 
-function getAppRoot(): HTMLElement {
-  const el = document.getElementById('app');
-  if (!el) throw new Error('找不到 #app 容器');
-  return el;
+interface BootUi {
+  app: HTMLElement;
+  bootScreen: BootScreen;
+  errorScreen: ErrorScreen;
 }
 
 async function initPhysics(): Promise<void> {
@@ -124,8 +128,10 @@ function settingsPanelSchema(): ConfigSchema<Settings> {
   return out;
 }
 
-async function boot(): Promise<void> {
-  const app = getAppRoot();
+async function boot(ui: BootUi): Promise<void> {
+  const { app, bootScreen, errorScreen } = ui;
+  // #cover：封面模式（M1-16）——固定取景、隱藏 HUD 與選單、800 × 500 渲染，不鎖定滑鼠、不寫入玩家設定。
+  const coverMode = hasHashFlag(location.hash, 'cover');
   const bus = new EventBus<GameEvents>();
   const storage = new GameStorage({
     onStatusChange: (persistent, reason) => bus.emit('storage:status', { persistent, reason }),
@@ -134,7 +140,14 @@ async function boot(): Promise<void> {
   const game = new Game({ bus, loop: LOOP_CONFIG });
 
   // 反鋸齒改用後處理的 SMAA（M1-09）；色調映射（AgX）在 PostFX，renderer 本身不做。
-  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
+  // WebGL 2 不可用時直接顯示錯誤畫面（M1-16）；建立 renderer 本身丟例外也歸類為 WebGL 錯誤。
+  const webgl = probeWebGL2(() => document.createElement('canvas'));
+  if (!webgl.ok) throw new FatalError('webgl', webgl.reason ?? 'WebGL 2 不可用', { stage: '建立 3D 繪圖' });
+  const renderer = await runStage(
+    '建立 3D 繪圖',
+    'webgl',
+    () => new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false }),
+  );
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -182,7 +195,7 @@ async function boot(): Promise<void> {
   flow = new LockFlow({
     game,
     lock: pointerLock,
-    useLock: !hasHashFlag(location.hash, 'nolock'),
+    useLock: !hasHashFlag(location.hash, 'nolock') && !coverMode,
   });
   const lockFlow = flow;
   // 暫停鍵：遊玩中暫停並解除鎖定；選單中為「返回上一層」（Esc 由選單自己在 capture 階段處理，這裡只會收到改綁的暫停鍵）。
@@ -199,7 +212,8 @@ async function boot(): Promise<void> {
   });
 
   // ── 物理與關卡（M1-04）─────────────────────────────────
-  await initPhysics();
+  bootScreen.stage(t('boot.stage.physics'));
+  await runStage('物理引擎初始化', 'physics', initPhysics);
   const physics = new Physics({ bus });
   const scene = new THREE.Scene();
   // ── 視覺（M1-09）：後處理、環境反射、燈光、天空與霧、材質庫 ─────────
@@ -260,7 +274,8 @@ async function boot(): Promise<void> {
       ? focusFeet.set(freeCam.position.x, freeCam.position.y - freeCam.config.eyeHeight, freeCam.position.z)
       : focusFeet.copy(player.position);
   levels.setFocus(getFocus);
-  const level = await levels.load(new TrainingGround());
+  bootScreen.stage(t('boot.stage.level'));
+  const level = await runStage('建立訓練場', 'boot', () => levels.load(new TrainingGround()));
   const spawn = level.getSpawn();
   player.teleport(spawn.pos, spawn.yaw);
   const teleportActive = (s: { pos: THREE.Vector3; yaw: number }): void => {
@@ -445,6 +460,7 @@ async function boot(): Promise<void> {
     return t;
   };
   const weaponName = (id: string): string => weapons.slots.find((w) => w?.id === id)?.def.name ?? id;
+  let coverDrones: boolean | null = null;
   const targets = new TargetManager({
     physics,
     bus,
@@ -454,7 +470,8 @@ async function boot(): Promise<void> {
     getPlayer: getTargetPlayer,
     getPlayerTarget: () => health,
     getZoneId: () => currentDataLevel()?.zone?.id ?? null,
-    dronesEnabled: () => settings.get('trainingDrones'),
+    // 封面模式用自己的開關，不改玩家設定。
+    dronesEnabled: () => coverDrones ?? settings.get('trainingDrones'),
     weaponName,
   });
   if (level.id === TRAINING_GROUND_ID) targets.build();
@@ -988,6 +1005,7 @@ async function boot(): Promise<void> {
   panel.bindConfig('介面/武器', HUD_CONFIG.weapon, HUD_WEAPON_PANEL);
   panel.bindConfig('介面/提示訊息', HUD_CONFIG.messages, HUD_MESSAGE_PANEL);
   panel.bindConfig('介面/提示訊息', HUD_CONFIG, { grappleHintDistance: { label: '可勾取顯示距離' } });
+  panel.bindConfig('介面/HUD 版面', HUD_CONFIG, { updateHz: { label: 'HUD 更新 Hz', min: 0, max: 240, step: 1, description: 'DOM 更新頻率；0 = 每畫面（M1-16）' } });
 
   // 遊玩中未鎖定（開過調參面板）時點擊畫面重新鎖定；選單與調參面板內的點擊不處理（選單按鈕自己處理開始／繼續）。
   app.addEventListener('pointerdown', (e) => {
@@ -995,6 +1013,43 @@ async function boot(): Promise<void> {
     if ((e.target as Element | null)?.closest('.sw-debug, .sw-menu')) return;
     void lockFlow.click();
   });
+  // ── 錯誤處理（M1-16）───────────────────────────────────
+  // 遊戲迴圈的例外防護：偶發錯誤記錄後繼續，連續 3 個畫面出錯才停止並顯示錯誤畫面（不會凍結在最後一個畫面）。
+  const frameGuard = new FrameGuard({
+    maxConsecutive: 3,
+    onFatal: (err) => {
+      renderer.setAnimationLoop(null);
+      document.documentElement.dataset.swBoot = 'error';
+      errorScreen.show({ ...classifyError(err), kind: 'runtime' });
+    },
+  });
+  // WebGL context lost：暫停、顯示錯誤畫面並等待瀏覽器恢復（three 已在 contextlost 時 preventDefault）；
+  // 恢復後重建環境反射（PMREM 是 GPU 產生的貼圖，內容會遺失）並重新預熱，回到暫停選單。重試 = 重新載入。
+  let contextLost = false;
+  renderer.domElement.addEventListener('webglcontextlost', () => {
+    contextLost = true;
+    document.documentElement.dataset.swContext = 'lost';
+    console.warn('[shardwake] WebGL context lost');
+    if (game.mode === 'playing') game.pause('blur');
+    errorScreen.show({ kind: 'contextLost', stage: null, detail: 'webglcontextlost' });
+  });
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    document.documentElement.dataset.swContext = 'restored';
+    console.info('[shardwake] WebGL context 已恢復');
+    try {
+      const oldEnv = scene.environment;
+      setupEnvironment(renderer, scene, ENVIRONMENT_CONFIG);
+      oldEnv?.dispose();
+      viewmodel.scene.environment = scene.environment;
+      contextLost = false;
+      if (errorScreen.kind === 'contextLost') errorScreen.hide();
+      hudMessages.push(t('hud.msg.contextRestored'), { key: 'context', tone: 'good' });
+      warmup('恢復').catch((err: unknown) => console.warn('[shardwake] 恢復後預熱失敗', err));
+    } catch (err) {
+      errorScreen.show(classifyError(err, 'contextLost'));
+    }
+  });
+
   // #debug 時把核心物件掛到 window，方便主控台與自動化測試檢查。
   const exposeDebug = (): void => {
     if (hasHashFlag(location.hash, 'debug')) {
@@ -1008,7 +1063,7 @@ async function boot(): Promise<void> {
         ...{ health, targets, hitConfirm, hitMarker, damageNumbers, damageOverlay, combatPanel, feedback },
         ...{ audio, audioEvents, audioTools: { renderStress, buildStressScenario } },
         ...{ hud, hudTimer, hudMessages, menu, menuActions, settingsScreen, controlsScreen, fullscreen },
-        ...{ tools },
+        ...{ tools, errorScreen, frameGuard },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
@@ -1019,18 +1074,39 @@ async function boot(): Promise<void> {
   // 著色器預熱（M1-09）：相機先放到出生點眼睛位置，編譯場景與預熱清單、上傳貼圖、畫一個畫面，完成後才顯示標題。
   camera.position.set(spawn.pos.x, spawn.pos.y + 1.6, spawn.pos.z);
   camera.rotation.set(0, spawn.yaw, 0, 'YXZ');
-  // 音效預渲染（M1-13）：純 JS 合成，分段讓出主執行緒；解鎖時再轉成 AudioBuffer。
-  await audio.prerender(weaponAudios());
-  await warmup('載入');
+  // 音效預渲染（M1-13）：純 JS 合成，分段讓出主執行緒；解鎖時再轉成 AudioBuffer。失敗時以靜音繼續（不是致命錯誤）。
+  bootScreen.stage(t('boot.stage.audio'));
+  try {
+    await audio.prerender(weaponAudios());
+  } catch (err) {
+    console.warn('[shardwake] 音效預渲染失敗，改為靜音', err);
+  }
+  // 預熱失敗也不阻止進入遊戲（著色器改在第一次畫到時編譯，可能短暫卡頓）。
+  bootScreen.stage(t('boot.stage.shaders'));
+  if (coverMode) {
+    // 封面一律用高畫質（不寫入玩家設定）。
+    const high = resolveQualityPreset('high');
+    lighting.applyQuality(high);
+    postfx.applyQuality(high);
+  }
+  try {
+    await warmup('載入');
+  } catch (err) {
+    console.warn('[shardwake] 著色器預熱失敗，改為首次繪製時編譯', err);
+  }
 
   game.setMode('title');
   syncMode(game.mode);
   renderer.setAnimationLoop((now: number) => {
-    stats.beginFrame();
-    panel.beginFrame();
-    game.frame(now);
+    if (contextLost) return;
+    frameGuard.run(() => {
+      stats.beginFrame();
+      panel.beginFrame();
+      game.frame(now);
+    });
   });
 
+  bootScreen.done();
   document.documentElement.dataset.swBoot = 'ready';
 
   // #demo：載入後直接進入遊玩，用標準參數重播內建錄影（不需要滑鼠鎖定；自動化驗證與截圖用）。
@@ -1041,9 +1117,65 @@ async function boot(): Promise<void> {
       if (!tools.startDemo()) console.warn('[shardwake] 示範無法開始');
     }, tools.demo.config.startDelay * 1000);
   }
+
+  // #cover：封面模式（M1-16）。隱藏 HUD、選單、FPS 與調參面板，固定取景後凍結；右下角「下載封面」。
+  if (coverMode) {
+    stats.setVisible(false);
+    panel.close();
+    hud.setHidden('cover', true);
+    health.config.invulnerable = true;
+    if (game.mode === 'title') game.start();
+    const cover = new CoverMode({
+      container: app,
+      renderNow: () => {
+        frameGuard.run(() => game.frame(performance.now()));
+        return renderer.domElement;
+      },
+      place: (cfg) => {
+        coverDrones = cfg.drones;
+        const v = coverView(cfg);
+        if (weapons.activeSlot !== cfg.weaponSlot) weapons.selectSlot(cfg.weaponSlot);
+        viewmodel.enabled = cfg.showWeapon;
+        player.teleport({ x: cfg.feet[0], y: cfg.feet[1], z: cfg.feet[2] }, v.yaw, v.pitch);
+        input.view.set(v.yaw, v.pitch);
+      },
+      freeze: (frozen) => {
+        game.loop.timeScale = frozen ? 0 : 1;
+      },
+      settle: (seconds) => {
+        const hz = game.loop.config.hz;
+        const steps = Math.round(seconds * hz);
+        for (let i = 0; i < steps; i++) frameGuard.run(() => game.tick(1 / hz));
+      },
+      setRenderScale: (s) => viewport.setRenderScale(s),
+      title: { main: t('game.title'), latin: t('game.titleLatin') },
+      downloadLabel: t('cover.download'),
+    });
+    panel.bindConfig('工具/封面', COVER_CONFIG, COVER_PANEL);
+    const feet = COVER_CONFIG.feet;
+    const feetProxy = {
+      get x(): number { return feet[0]; },
+      set x(v: number) { feet[0] = v; },
+      get y(): number { return feet[1]; },
+      set y(v: number) { feet[1] = v; },
+      get z(): number { return feet[2]; },
+      set z(v: number) { feet[2] = v; },
+    };
+    panel.bindConfig('工具/封面', feetProxy, { x: { label: '腳底 x', step: 0.5 }, y: { label: '腳底 y', step: 0.5 }, z: { label: '腳底 z', step: 0.5 } });
+    panel.bindButtons('工具/封面', [{ title: '重新取景', onClick: () => void cover.reframe() }, { title: '下載封面', onClick: () => void cover.download() }]);
+    (globalThis as Record<string, unknown>).__shardwakeCover = cover;
+    await cover.start();
+  }
 }
 
-boot().catch((err: unknown) => {
+// 啟動：錯誤畫面與載入畫面先建立（容器不存在時掛在 body），任何啟動階段失敗都顯示中文錯誤畫面與「重試」，不會白畫面。
+const appRoot = document.getElementById('app') ?? document.body;
+const bootUi: BootUi = { app: appRoot, bootScreen: new BootScreen(appRoot), errorScreen: new ErrorScreen({ container: appRoot }) };
+document.documentElement.dataset.swBoot = 'loading';
+bootUi.bootScreen.stage(t('boot.loading'));
+boot(bootUi).catch((err: unknown) => {
   document.documentElement.dataset.swBoot = 'error';
   console.error('[shardwake] 啟動失敗', err);
+  bootUi.bootScreen.done();
+  bootUi.errorScreen.show(classifyError(err));
 });

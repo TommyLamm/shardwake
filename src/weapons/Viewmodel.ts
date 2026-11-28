@@ -449,6 +449,13 @@ export class Viewmodel implements GameSystem {
   }
 
   /** 推進動畫 dt 秒（暫停時 dt = 0：凍結），alpha 為固定步的插值係數。無頭測試直接呼叫。 */
+  /** 姿勢權重彈簧（共用頻率）。 */
+  private poseSpring(s: SpringScalar, target: number, dt: number): void {
+    s.frequency = this.config.poseFrequency;
+    s.target = target;
+    if (dt > 0) s.update(dt);
+  }
+
   advance(dt: number, alpha: number): void {
     const cfg = this.config;
     const weapons = this.options.weapons;
@@ -508,11 +515,11 @@ export class Viewmodel implements GameSystem {
       this.prevYaw = view.yaw;
       this.prevPitch = view.pitch;
       this.hasPrevView = true;
-      for (const s of [this.swayYaw, this.swayPitch]) {
-        s.frequency = cfg.swayFrequency;
-        s.dampingRatio = cfg.swayDamping;
-        s.update(dt);
-      }
+      // 不在熱迴圈建立陣列（M1-16）。
+      this.swayYaw.frequency = this.swayPitch.frequency = cfg.swayFrequency;
+      this.swayYaw.dampingRatio = this.swayPitch.dampingRatio = cfg.swayDamping;
+      this.swayYaw.update(dt);
+      this.swayPitch.update(dt);
     }
     const sy = this.swayYaw.value;
     const sp = this.swayPitch.value;
@@ -540,18 +547,11 @@ export class Viewmodel implements GameSystem {
     // 姿勢權重（彈簧）。
     const yaw = view.yaw;
     const wallSide = ps.state === 'wallRun' ? ps.wallNormal.x * Math.cos(yaw) - ps.wallNormal.z * Math.sin(yaw) : 0;
-    const targets: [SpringScalar, number][] = [
-      [this.sprintW, sprinting && ads < 0.5 ? 1 : 0],
-      [this.slideW, ps.state === 'slide' ? 1 : 0],
-      [this.airW, !ps.grounded && ps.state === 'air' ? 1 : 0],
-      [this.mantleW, ps.state === 'mantle' ? 1 : 0],
-      [this.wallX, wallSide],
-    ];
-    for (const [s, target] of targets) {
-      s.frequency = cfg.poseFrequency;
-      s.target = target;
-      if (dt > 0) s.update(dt);
-    }
+    this.poseSpring(this.sprintW, sprinting && ads < 0.5 ? 1 : 0, dt);
+    this.poseSpring(this.slideW, ps.state === 'slide' ? 1 : 0, dt);
+    this.poseSpring(this.airW, !ps.grounded && ps.state === 'air' ? 1 : 0, dt);
+    this.poseSpring(this.mantleW, ps.state === 'mantle' ? 1 : 0, dt);
+    this.poseSpring(this.wallX, wallSide, dt);
     const sprintW = this.sprintW.value * motion;
     pose.px += cfg.sprintPos[0] * sprintW;
     pose.py += cfg.sprintPos[1] * sprintW;

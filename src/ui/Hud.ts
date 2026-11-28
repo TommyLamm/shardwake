@@ -11,7 +11,7 @@
 import { SystemOrder, type FrameInfo, type GameSystem } from '@/core/Game';
 import { h } from '@/ui/dom';
 import { HUD_CONFIG, type HudConfig } from '@/ui/HudConfig';
-import { hudLayout, type HudLayout } from '@/ui/hudMath';
+import { hudLayout, UpdateThrottle, type HudLayout } from '@/ui/hudMath';
 
 export type HudAnchor = 'top' | 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomCenter' | 'bottomRight' | 'center';
 export const HUD_ANCHORS: readonly HudAnchor[] = ['top', 'topLeft', 'topRight', 'bottomLeft', 'bottomCenter', 'bottomRight', 'center'];
@@ -60,6 +60,7 @@ export class Hud implements GameSystem {
   private readonly hiddenBy = new Set<string>();
   private readonly frameInfo: HudFrame = { realDt: 0, dt: 0, mode: 'boot', scale: 1 };
   private lastSize = { width: 0, height: 0 };
+  private readonly throttle = new UpdateThrottle();
 
   constructor(options: HudOptions) {
     this.config = options.config ?? HUD_CONFIG;
@@ -80,7 +81,12 @@ export class Hud implements GameSystem {
     const before = this.visible;
     if (hidden) this.hiddenBy.add(reason);
     else this.hiddenBy.delete(reason);
-    if (before !== this.visible) this.root.hidden = !this.visible;
+    if (before !== this.visible) {
+      this.root.hidden = !this.visible;
+      // 重新顯示時立即更新（不等下一個節流間隔），隱藏期間的時間不累計。
+      this.throttle.reset();
+      this.throttle.flush();
+    }
   }
 
   /** 加入元件（同 id 會丟例外）。 */
@@ -131,13 +137,17 @@ export class Hud implements GameSystem {
   /** 重新開始訓練、換關卡：清掉元件的暫存狀態。 */
   reset(): void {
     for (const w of this.widgets) w.reset?.();
+    this.throttle.flush();
   }
 
   update(dt: number, frame: Readonly<FrameInfo>): void {
     if (!this.visible) return;
+    // 節流：以 config.updateHz 更新 DOM，元件收到累計的 dt（M1-16）。
+    const th = this.throttle;
+    if (!th.tick(frame.realDt, dt, this.config.updateHz)) return;
     const f = this.frameInfo;
-    f.realDt = frame.realDt;
-    f.dt = dt;
+    f.realDt = th.out.realDt;
+    f.dt = th.out.dt;
     f.mode = frame.mode;
     for (let i = 0; i < this.widgets.length; i++) this.widgets[i]!.update(f);
   }

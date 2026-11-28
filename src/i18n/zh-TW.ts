@@ -248,6 +248,32 @@ export const ZH_TW = {
   'hud.demo.running': '示範：滑鏟 → 跑牆 → 蹬牆跳 → 二段跳 → Dash → 抓鉤',
   'hud.demo.done': '示範完成（終點差 {error}；按 {key} 再看一次）',
   'hud.demo.failed': '示範失準：{reason}',
+  'hud.msg.contextRestored': '畫面已恢復',
+  'cover.download': '下載封面',
+
+  // ── 載入與錯誤畫面（M1-16）────────────────────────────
+  // index.html 的靜態載入畫面與看門狗在 JS 載入前顯示，文字直接寫在 index.html（與這裡的 boot.loading、error.load.* 一致）。
+  'boot.loading': '載入中…',
+  'boot.stage.physics': '初始化物理引擎…',
+  'boot.stage.level': '建立訓練場…',
+  'boot.stage.audio': '合成音效…',
+  'boot.stage.shaders': '預熱著色器…',
+  'error.retry': '重試',
+  'error.details': '錯誤詳細資訊',
+  'error.stage': '發生階段：{stage}',
+  'error.note': '設定、按鍵與成績保存在這個瀏覽器中，重試不會遺失。',
+  'error.webgl.title': '無法使用 3D 繪圖（WebGL 2）',
+  'error.webgl.body': '這款遊戲需要 WebGL 2。請確認瀏覽器已開啟「使用硬體加速」，更新顯示卡驅動程式，或改用最新版 Chrome、Edge、Firefox 後按「重試」。',
+  'error.contextLost.title': '3D 繪圖中斷',
+  'error.contextLost.body': '顯示卡的繪圖內容遺失（可能是驅動程式重設、顯示卡記憶體不足或切換了顯示卡）。正在等待恢復；也可以按「重試」重新載入遊戲。',
+  'error.physics.title': '物理引擎載入失敗',
+  'error.physics.body': '物理引擎（WebAssembly）無法初始化。請確認瀏覽器支援 WebAssembly、沒有被擴充功能或管理政策封鎖，然後按「重試」。',
+  'error.load.title': '遊戲檔案載入失敗',
+  'error.load.body': '部分遊戲檔案沒有下載成功，可能是網路中斷或版本剛更新。請檢查網路後按「重試」。',
+  'error.boot.title': '遊戲啟動失敗',
+  'error.boot.body': '載入途中發生未預期的錯誤。請按「重試」；如果一直發生，請把下方的錯誤詳細資訊回報給開發者。',
+  'error.runtime.title': '遊戲執行時發生錯誤',
+  'error.runtime.body': '畫面更新連續發生錯誤，遊戲已停止以免卡住。請按「重試」重新載入；如果一直發生，請把下方的錯誤詳細資訊回報給開發者。',
 } as const satisfies Record<string, string>;
 
 export type StringTable = { readonly [K in keyof typeof ZH_TW]: string };

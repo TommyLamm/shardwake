@@ -49,6 +49,9 @@ export class CourseRings implements GameSystem {
     const mat = (color: number, opacity: number): THREE.MeshBasicMaterial => {
       const m = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(s.glow), transparent: true, opacity, toneMapped: false, depthWrite: false });
       m.side = THREE.DoubleSide;
+      // 透明雙面材質預設分兩次畫（背面、正面），每次都改 side 並讓 three 每畫面重新查著色器程式（M1-16 剖析：
+      // 每畫面 14 次 getProgram）。環很細、前後排序看不出差別，改成單次繪製。
+      m.forceSinglePass = true;
       return m;
     };
     this.materials = {

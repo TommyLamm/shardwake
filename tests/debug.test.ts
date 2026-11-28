@@ -281,3 +281,23 @@ describe('FrameTimeSampler', () => {
     expect(s.latest.fps).toBeCloseTo(100, 6);
   });
 });
+
+describe('DebugPanel 關閉時停用監看（M1-16）', () => {
+  it('關閉後 pane.disabled = true（Tweakpane 監看計時器停止），再開啟時恢復', async () => {
+    const { pane, panel } = makePanel();
+    await panel.open();
+    expect((pane as PaneRoot).disabled).toBe(false);
+    panel.close();
+    expect((pane as PaneRoot).disabled).toBe(true);
+    await panel.open();
+    expect((pane as PaneRoot).disabled).toBe(false);
+  });
+
+  it('面板在關閉狀態下才載入完成時也維持停用', async () => {
+    const { pane, panel } = makePanel();
+    const p = panel.open();
+    panel.close();
+    await p;
+    expect((pane as PaneRoot).disabled).toBe(true);
+  });
+});

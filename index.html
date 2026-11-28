@@ -6,9 +6,58 @@
     <meta name="color-scheme" content="dark" />
     <link rel="icon" href="data:," />
     <title>碎晶航跡 SHARDWAKE</title>
+    <style>
+      /* 靜態載入畫面（M1-16）：JS 與 CSS 還沒載入前就顯示，避免白畫面；main.ts 完成啟動後移除。 */
+      html, body { margin: 0; height: 100%; background: #05080d; color: #cfe8ee; }
+      .sw-boot { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        font: 15px/1.6 system-ui, 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', sans-serif; text-align: center; padding: 24px; }
+      .sw-boot-title { font-size: 28px; letter-spacing: 0.2em; color: #39e6ff; }
+      .sw-boot-stage { color: rgb(207 232 238 / 75%); }
+      .sw-boot-slow { max-width: 480px; color: #ff9a5a; }
+      .sw-boot-slow[hidden] { display: none; }
+      .sw-boot-slow button { margin-top: 10px; padding: 6px 24px; font: inherit; color: #05080d; background: #39e6ff; border: 0; cursor: pointer; }
+    </style>
+    <script>
+      // 載入看門狗（M1-16）：遊戲檔案下載失敗時顯示提示與「重試」，不留白畫面。
+      // 主程式一開始執行就會設定 data-sw-boot 並移除這裡的提示；之後的錯誤由主程式的錯誤畫面處理。
+      (function () {
+        var shown = false;
+        function show(text) {
+          if (shown || document.documentElement.dataset.swBoot) return;
+          var box = document.getElementById('sw-boot-slow');
+          if (!box) return;
+          shown = true;
+          box.querySelector('p').textContent = text;
+          box.hidden = false;
+        }
+        window.addEventListener(
+          'error',
+          function (e) {
+            var el = e.target;
+            if (el && (el.tagName === 'SCRIPT' || el.tagName === 'LINK')) show('遊戲檔案載入失敗，可能是網路中斷或版本剛更新。請檢查網路後重試。');
+            // 主程式開始執行前的例外（例如瀏覽器太舊、模組初始化失敗）：主程式的錯誤畫面還不存在，在這裡提示。
+            else if (e.error || e.message) show('遊戲無法在這個瀏覽器啟動（' + (e.message || e.error) + '）。請更新瀏覽器後重試。');
+          },
+          true,
+        );
+        setTimeout(function () {
+          show('載入時間比預期久。網路較慢時請再稍候，或按「重試」重新載入。');
+        }, 30000);
+      })();
+    </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="sw-boot" class="sw-boot" role="status" aria-live="polite">
+        <div class="sw-boot-title">碎晶航跡</div>
+        <div class="sw-boot-stage">載入中…</div>
+        <div id="sw-boot-slow" class="sw-boot-slow" hidden>
+          <p></p>
+          <button type="button" onclick="location.reload()">重試</button>
+        </div>
+      </div>
+      <noscript><p class="sw-boot">這款遊戲需要啟用 JavaScript。</p></noscript>
+    </div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

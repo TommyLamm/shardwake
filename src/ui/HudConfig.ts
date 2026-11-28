@@ -56,6 +56,8 @@ export interface HudConfig {
   messages: HudMessageConfig;
   /** 「可勾取」提示是否顯示距離。 */
   grappleHintDistance: boolean;
+  /** HUD 元件的 DOM 更新頻率（Hz；0 = 每畫面）。高 FPS 時減少樣式重算（M1-16）；準星與命中標記不受影響。 */
+  updateHz: number;
 }
 
 export const HUD_CONFIG: HudConfig = {
@@ -65,6 +67,7 @@ export const HUD_CONFIG: HudConfig = {
   weapon: { lowAmmoFraction: 0.25 },
   messages: { duration: 2.4, fadeOut: 0.35, maxVisible: 3, pauseHintDuration: 4 },
   grappleHintDistance: true,
+  updateHz: 60,
 };
 
 export const HUD_LAYOUT_PANEL: ConfigSchema<HudLayoutConfig> = {

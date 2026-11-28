@@ -34,7 +34,7 @@
 | [M1-13](docs/plans/M1-13-audio.md) | 程序合成音效 | M1-02 | 完成 |
 | [M1-14](docs/plans/M1-14-hud-menus.md) | HUD、選單與設定 | M1-07、M1-12 | 完成 |
 | [M1-15](docs/plans/M1-15-tuning-tools.md) | 調校工具：預設組合、錄製重播、示範、計時賽 | M1-07、M1-14 | 完成 |
-| [M1-16](docs/plans/M1-16-polish-perf.md) | 效能、手感總調校、說明文件與封面 ★ | M1-01～M1-15 | 未開始 |
+| [M1-16](docs/plans/M1-16-polish-perf.md) | 效能、手感總調校、說明文件與封面 ★ | M1-01～M1-15 | 完成 |
 | [M1-17](docs/plans/M1-17-release-v0.1.md) | 發布流程與 v0.1.0（需授權） | M1-16 | 未開始 |
 | [M2-01](docs/plans/M2-01-item-generator.md) | 物品模型與武器生成器 | M1 | 未開始 |
 | [M2-02](docs/plans/M2-02-affixes-elements.md) | 詞綴、元素與狀態效果 | M2-01 | 未開始 |

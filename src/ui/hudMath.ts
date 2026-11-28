@@ -292,3 +292,39 @@ export interface TimerState {
 export function createTimerState(): TimerState {
   return { visible: false, time: 0, running: false, best: null, splits: [] };
 }
+
+// ── 更新節流（M1-16）──────────────────────────────────
+
+/**
+ * HUD 元件的更新節流：高更新率（例如 240 FPS）時，DOM 只以 hz 更新，元件收到累計的 dt（動畫速度不變）。
+ * hz ≤ 0 = 每畫面更新；dt ≤ 0（第一個畫面、無頭測試）也立即更新。準星與命中標記不經過這裡（每畫面更新）。
+ */
+export class UpdateThrottle {
+  private accReal = 0;
+  private accSim = 0;
+  private force = false;
+  /** 本次要交給元件的累計 dt（tick 回傳 true 時有效）。 */
+  readonly out = { realDt: 0, dt: 0 };
+
+  tick(realDt: number, dt: number, hz: number): boolean {
+    this.accReal += Math.max(0, realDt);
+    this.accSim += Math.max(0, dt);
+    if (!this.force && hz > 0 && realDt > 0 && this.accReal < 1 / hz - 1e-6) return false;
+    this.force = false;
+    this.out.realDt = this.accReal;
+    this.out.dt = this.accSim;
+    this.accReal = 0;
+    this.accSim = 0;
+    return true;
+  }
+
+  /** 下一次 tick 立即更新（例如重新顯示、重設）。 */
+  flush(): void {
+    this.force = true;
+  }
+
+  reset(): void {
+    this.accReal = 0;
+    this.accSim = 0;
+  }
+}

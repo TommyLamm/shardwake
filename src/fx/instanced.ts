@@ -16,6 +16,8 @@ export function createQuadGeometry(along = false): THREE.InstancedBufferGeometry
 /** 實例屬性群組：以槽位寫入，記錄改過的範圍，flush() 時只上傳那一段（環狀繞回時上傳整段）。 */
 export class InstancedAttributes {
   readonly attributes: Record<string, THREE.InstancedBufferAttribute> = {};
+  /** 同一組屬性的陣列（flush 時不再以 Object.values 配置，M1-16）。 */
+  private readonly list: THREE.InstancedBufferAttribute[] = [];
   private lo = Infinity;
   private hi = -1;
 
@@ -29,6 +31,7 @@ export class InstancedAttributes {
       attr.setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute(name, attr);
       this.attributes[name] = attr;
+      this.list.push(attr);
     }
   }
 
@@ -49,7 +52,7 @@ export class InstancedAttributes {
   /** 上傳改過的範圍。 */
   flush(): void {
     if (this.hi < this.lo) return;
-    for (const attr of Object.values(this.attributes)) {
+    for (const attr of this.list) {
       attr.clearUpdateRanges();
       attr.addUpdateRange(this.lo * attr.itemSize, (this.hi - this.lo + 1) * attr.itemSize);
       attr.needsUpdate = true;

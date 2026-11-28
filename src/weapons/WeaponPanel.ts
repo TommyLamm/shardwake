@@ -40,8 +40,9 @@ export const WEAPON_FIELD_GROUPS: readonly { folder: string; fields: readonly We
     fields: [
       { path: 'damage.base', spec: n('基礎傷害', 0, 500, 1, '每顆彈丸／投射物直擊') },
       { path: 'damage.critMult', spec: n('弱點倍率', 0, 5, 0.05) },
-      { path: 'damage.falloffStart', spec: n('衰減開始 m', 0, 500, 1) },
-      { path: 'damage.falloffEnd', spec: n('衰減結束 m', 0, 500, 1) },
+      // 上限 1000 m：電漿發射器以 1000 m 表示「不衰減」（M1-16：原上限 500 會在碰到滑桿時把它夾成 500）。
+  { path: 'damage.falloffStart', spec: n('衰減開始 m', 0, 1000, 1) },
+      { path: 'damage.falloffEnd', spec: n('衰減結束 m', 0, 1000, 1) },
       { path: 'damage.minMult', spec: n('最低倍率', 0, 1, 0.01) },
       { path: 'damage.penetration', spec: n('穿透目標數', 0, 8, 1, '0 = 只打第一個；2 = 最多命中 3 個；不穿牆') },
     ],

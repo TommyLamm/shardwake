@@ -100,6 +100,8 @@ export interface PaneFolder {
 
 export interface PaneRoot extends PaneFolder {
   hidden: boolean;
+  /** 停用整個面板：唯讀監看的計時器跟著停（M1-16：關閉面板後不再每 200 ms 更新上百個監看值）。 */
+  disabled?: boolean;
 }
 
 export interface FpsGraphLike {
@@ -205,6 +207,7 @@ export class DebugPanel implements GameSystem {
     if (!this._open) {
       this._open = true;
       this.root.hidden = false;
+      if (this.pane) this.pane.disabled = false;
       this.bus?.emit('debug:panel', { open: true });
     }
     return this.ensurePane().then(() => undefined);
@@ -214,6 +217,8 @@ export class DebugPanel implements GameSystem {
     if (!this._open) return;
     this._open = false;
     this.root.hidden = true;
+    // 關閉後停掉監看計時器（Tweakpane 的監看在停用時不 tick）；開啟時恢復。
+    if (this.pane) this.pane.disabled = true;
     this.bus?.emit('debug:panel', { open: false });
   }
 
@@ -328,6 +333,7 @@ export class DebugPanel implements GameSystem {
         this.pane = pane;
         this.buildPerfFolder(pane);
         for (const reg of this.registrations) this.build(reg);
+        pane.disabled = !this._open;
         return pane;
       },
       (err: unknown) => {

@@ -465,3 +465,131 @@ body {
 .sw-tools-download {
   color: rgb(57 230 255);
 }
+
+/* 錯誤畫面（M1-16）：蓋住整個遊戲，置中的面板；z-index 高於選單與調參面板。 */
+.sw-error {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgb(3 5 9 / 92%);
+  color: var(--sw-text);
+  font: 15px/1.6 var(--sw-font-ui);
+}
+
+.sw-error[hidden] {
+  display: none;
+}
+
+.sw-error-panel {
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 24px 28px;
+  background: rgb(10 16 24 / 96%);
+  border: 1px solid rgb(255 106 42 / 55%);
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+}
+
+.sw-error-title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  color: #ff9a5a;
+}
+
+.sw-error-body {
+  margin: 0 0 10px;
+}
+
+.sw-error-stage,
+.sw-error-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: rgb(207 232 238 / 70%);
+}
+
+.sw-error-stage[hidden],
+.sw-error-details[hidden] {
+  display: none;
+}
+
+.sw-error-details {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.sw-error-summary {
+  cursor: pointer;
+  color: rgb(57 230 255 / 85%);
+}
+
+.sw-error-detail {
+  max-height: 160px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  font: 12px/1.4 var(--sw-font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgb(0 0 0 / 40%);
+  border: 1px solid rgb(120 160 180 / 25%);
+}
+
+.sw-error-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sw-error-retry {
+  padding: 8px 28px;
+  font: 600 15px/1.4 var(--sw-font-ui);
+  color: #05080d;
+  background: var(--sw-cyan);
+  border: 0;
+  cursor: pointer;
+}
+
+.sw-error-retry:hover,
+.sw-error-retry:focus-visible {
+  background: #8af1ff;
+  outline: 2px solid #e8fbff;
+  outline-offset: 2px;
+}
+/* #cover 封面模式（M1-16）：遊戲容器固定為輸出尺寸（由 CoverMode 設定 width／height），隱藏 HUD 以外的畫面層。 */
+.sw-cover-mode body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sw-cover-mode #app {
+  flex: none;
+  outline: 1px solid rgb(57 230 255 / 25%);
+}
+
+.sw-cover-mode .sw-dmgfx,
+.sw-cover-mode .sw-dmgnums,
+.sw-cover-mode .sw-hint,
+.sw-cover-mode .sw-fps,
+.sw-cover-mode .sw-scope {
+  display: none;
+}
+
+.sw-cover-download {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  padding: 8px 20px;
+  font: 600 14px/1.4 var(--sw-font-ui);
+  color: #05080d;
+  background: var(--sw-cyan);
+  border: 0;
+  cursor: pointer;
+}

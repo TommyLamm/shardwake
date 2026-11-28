@@ -438,6 +438,7 @@ export function setupTuningTools(d: TuningToolsDeps): TuningTools {
   panel.bindConfig('工具/設定/錄製重播', cfg.replay, REPLAY_TOOL_PANEL);
   panel.bindConfig('工具/設定/計時賽', cfg.trial, TRIAL_TOOL_PANEL);
   panel.bindConfig('工具/設定/示範', cfg.demo, DEMO_TOOL_PANEL);
+  let tuningMonitorAt = Number.NEGATIVE_INFINITY;
   game.addSystem({
     name: 'toolsMonitor',
     order: 1300,
@@ -453,8 +454,13 @@ export function setupTuningTools(d: TuningToolsDeps): TuningTools {
       trialMonitor.phase = run ? { idle: '待命', running: '計時中', finished: '完成' }[run.phase] : '沒有路線';
       trialMonitor.time = run ? formatTimer(run.time) : '—';
       trialMonitor.best = trial.best ? formatTimer(trial.best.time) : '—';
-      const diff = currentTuningDiff(tuning);
-      trialMonitor.tuning = isStandardTuning(diff) ? '標準' : tuningFingerprint(diff);
+      // 調參指紋要複製並比對全部調參值（約 60 KB 配置），節流到每 0.5 s 一次（M1-16 剖析）。
+      const now = performance.now();
+      if (now - tuningMonitorAt >= 500) {
+        tuningMonitorAt = now;
+        const diff = currentTuningDiff(tuning);
+        trialMonitor.tuning = isStandardTuning(diff) ? '標準' : tuningFingerprint(diff);
+      }
     },
   });
 
