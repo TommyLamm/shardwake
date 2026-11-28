@@ -7,11 +7,23 @@
 // 較新版本寫入的欄位不會被較舊版本刪掉）；版本號較新的資料只讀取認得的欄位，存檔時保留其版本號。
 import type { EventBus } from '@/core/EventBus';
 import type { GameEvents } from '@/core/events';
-import { QUALITY_PRESETS, resolveQualityPreset, type QualityLevel, type QualityPreset } from '@/core/quality';
+import {
+  QUALITY_PRESETS,
+  QUALITY_TOGGLES,
+  RENDER_SCALE_OPTIONS,
+  effectiveQuality,
+  resolveQualityPreset,
+  type QualityLevel,
+  type QualityPreset,
+  type QualityToggle,
+  type RenderScaleOption,
+} from '@/core/quality';
 import type { GameStorage } from '@/core/Storage';
 
-export { QUALITY_PRESETS, resolveQualityPreset };
-export type { QualityLevel, QualityPreset };
+export { QUALITY_PRESETS, effectiveQuality, resolveQualityPreset };
+export type { QualityLevel, QualityPreset, QualityToggle, RenderScaleOption };
+/** 影響畫質（渲染比例、陰影、後處理）的設定欄位。 */
+export const QUALITY_SETTING_KEYS = ['quality', 'renderScale', 'shadows', 'bloom'] as const;
 /** 蹲、開鏡、抓鉤的操作方式（M1-03 的 InputFrame 轉換）。 */
 export type HoldToggle = 'hold' | 'toggle';
 
@@ -66,6 +78,12 @@ export interface Settings {
   musicVolume: number;
   /** 畫質預設：渲染比例、陰影、Bloom、SMAA（內容見 core/quality.ts）。 */
   quality: QualityLevel;
+  /** 渲染比例覆寫（M1-14）：'auto' 跟隨畫質，或 '0.5'–'1'。 */
+  renderScale: RenderScaleOption;
+  /** 陰影覆寫（M1-14）：auto／off／on。 */
+  shadows: QualityToggle;
+  /** Bloom 覆寫（M1-14）：auto／off／on。 */
+  bloom: QualityToggle;
   /** 顯示畫面角落的 FPS／frame time。 */
   showFps: boolean;
 }
@@ -110,6 +128,15 @@ export const SETTINGS_SCHEMA = {
     optionLabels: ['低', '中', '高'],
     label: '畫質',
   },
+  renderScale: {
+    type: 'enum',
+    default: 'auto',
+    options: RENDER_SCALE_OPTIONS,
+    optionLabels: ['跟隨畫質', '50%', '67%', '75%', '85%', '100%'],
+    label: '渲染比例',
+  },
+  shadows: { type: 'enum', default: 'auto', options: QUALITY_TOGGLES, optionLabels: ['跟隨畫質', '關', '開'], label: '陰影' },
+  bloom: { type: 'enum', default: 'auto', options: QUALITY_TOGGLES, optionLabels: ['跟隨畫質', '關', '開'], label: 'Bloom 光暈' },
   showFps: { type: 'boolean', default: true, label: '顯示 FPS' },
 } as const satisfies Record<SettingsKey, SettingSpec>;
 
@@ -216,9 +243,14 @@ export class SettingsStore {
     return this.current[key];
   }
 
-  /** 目前畫質預設的參數（已夾住範圍的複本）。 */
+  /** 目前畫質的參數：畫質預設套用玩家的渲染比例／陰影／Bloom 覆寫（已夾住範圍的複本）。 */
   get qualityPreset(): QualityPreset {
-    return resolveQualityPreset(this.current.quality);
+    return effectiveQuality(this.current);
+  }
+
+  /** 是否會保存到重新整理之後（儲存不可用時設定只留在記憶體）。 */
+  get persistent(): boolean {
+    return this.storage.isPersistent;
   }
 
   /** 從儲存重新讀取（不發出變更事件）。 */

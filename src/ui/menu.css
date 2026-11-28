@@ -1,0 +1,664 @@
+/* 選單（M1-14）：標題、暫停、設定、按鍵配置、操作說明。尺寸乘 --sw-ui-scale（依 iframe 短邊，main.ts 設定在 #app）。
+   未來科技風格：細線框、斜角、青色主色、等寬數字；動畫只用 transform／opacity。 */
+#app {
+  --sw-ui-scale: 1;
+}
+
+.sw-menu {
+  --u: var(--sw-ui-scale);
+  --sw-line: rgb(57 230 255 / 35%);
+  --sw-line-strong: rgb(57 230 255 / 75%);
+  --sw-panel-bg: rgb(5 11 19 / 90%);
+  --sw-dim: rgb(207 232 238 / 60%);
+  --sw-magenta: #ff3df0;
+  --sw-warn: #ffb14a;
+  --sw-danger: #ff5a6a;
+  --sw-good: #6dffb0;
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font: calc(14px * var(--u)) / 1.5 var(--sw-font-ui);
+  color: var(--sw-text);
+  user-select: none;
+  cursor: default;
+}
+
+.sw-menu[hidden],
+.sw-menu [hidden] {
+  display: none !important;
+}
+
+.sw-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgb(5 8 13 / 35%), rgb(5 8 13 / 82%) 75%),
+    repeating-linear-gradient(0deg, rgb(57 230 255 / 3%) 0 1px, transparent 1px 4px);
+}
+
+.sw-menu[data-root='title'] .sw-menu-backdrop {
+  background:
+    radial-gradient(ellipse at 50% 35%, rgb(5 8 13 / 15%), rgb(5 8 13 / 80%) 80%),
+    repeating-linear-gradient(0deg, rgb(57 230 255 / 3%) 0 1px, transparent 1px 4px);
+}
+
+.sw-menu-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: calc(24px * var(--u));
+  box-sizing: border-box;
+}
+
+.sw-screen {
+  animation: sw-screen-in 0.16s ease-out;
+}
+
+@keyframes sw-screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(8px * var(--u)));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 面板：細線框、左上／右下斜角、角落亮線。 */
+.sw-panel {
+  --cut: calc(16px * var(--u));
+  position: relative;
+  box-sizing: border-box;
+  background: var(--sw-panel-bg);
+  border: 1px solid var(--sw-line);
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  box-shadow: inset 0 0 calc(40px * var(--u)) rgb(57 230 255 / 6%);
+}
+
+.sw-panel::before,
+.sw-panel::after {
+  content: '';
+  position: absolute;
+  width: calc(var(--cut) * 1.5);
+  height: calc(var(--cut) * 1.5);
+  pointer-events: none;
+}
+
+.sw-panel::before {
+  left: 0;
+  top: 0;
+  background: linear-gradient(135deg, transparent 0 calc(33% - 1px), var(--sw-cyan) calc(33% - 1px) calc(33% + 0.5px), transparent calc(33% + 0.5px));
+}
+
+.sw-panel::after {
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(315deg, transparent 0 calc(33% - 1px), var(--sw-magenta) calc(33% - 1px) calc(33% + 0.5px), transparent calc(33% + 0.5px));
+}
+
+/* ── 按鈕 ───────────────────────────────────────────── */
+.sw-btn {
+  --cut-b: calc(8px * var(--u));
+  position: relative;
+  padding: calc(8px * var(--u)) calc(18px * var(--u));
+  font: inherit;
+  font-size: calc(14px * var(--u));
+  letter-spacing: 0.06em;
+  color: var(--sw-text);
+  background: rgb(57 230 255 / 6%);
+  border: 1px solid var(--sw-line);
+  clip-path: polygon(var(--cut-b) 0, 100% 0, 100% calc(100% - var(--cut-b)), calc(100% - var(--cut-b)) 100%, 0 100%, 0 var(--cut-b));
+  cursor: pointer;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+
+.sw-btn:hover,
+.sw-btn:focus-visible {
+  background: rgb(57 230 255 / 16%);
+  border-color: var(--sw-line-strong);
+  outline: none;
+  color: #fff;
+}
+
+.sw-btn:active {
+  background: rgb(57 230 255 / 26%);
+}
+
+.sw-btn-primary {
+  color: #021015;
+  background: var(--sw-cyan);
+  border-color: var(--sw-cyan);
+  font-weight: 700;
+}
+
+.sw-btn-primary:hover,
+.sw-btn-primary:focus-visible {
+  color: #021015;
+  background: #8af2ff;
+}
+
+.sw-btn-ghost {
+  background: transparent;
+}
+
+.sw-btn-danger:hover,
+.sw-btn-danger:focus-visible {
+  border-color: var(--sw-danger);
+  color: var(--sw-danger);
+  background: rgb(255 90 106 / 10%);
+}
+
+/* ── 根畫面（標題、暫停） ───────────────────────────── */
+.sw-root-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(28px * var(--u));
+  max-width: 100%;
+}
+
+.sw-brand {
+  display: grid;
+  justify-items: center;
+  gap: calc(6px * var(--u));
+  text-align: center;
+}
+
+.sw-brand-mark {
+  width: calc(54px * var(--u));
+  height: calc(54px * var(--u));
+  border: 2px solid var(--sw-cyan);
+  transform: rotate(45deg);
+  box-shadow:
+    0 0 18px rgb(57 230 255 / 55%),
+    inset 0 0 12px rgb(255 61 240 / 45%);
+  animation: sw-mark 6s linear infinite;
+}
+
+@keyframes sw-mark {
+  from {
+    transform: rotate(45deg);
+  }
+  to {
+    transform: rotate(405deg);
+  }
+}
+
+.sw-brand-title {
+  display: grid;
+  justify-items: center;
+  margin: calc(10px * var(--u)) 0 0;
+  line-height: 1.05;
+}
+
+.sw-brand-zh {
+  font-size: calc(54px * var(--u));
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  margin-right: -0.24em;
+  color: #eafcff;
+  text-shadow:
+    0 0 22px rgb(57 230 255 / 55%),
+    0 0 2px rgb(57 230 255 / 90%);
+}
+
+.sw-brand-latin {
+  font-family: var(--sw-font-mono);
+  font-size: calc(20px * var(--u));
+  letter-spacing: 0.62em;
+  margin-right: -0.62em;
+  color: var(--sw-cyan);
+}
+
+.sw-brand-tagline {
+  margin: 0;
+  font-size: calc(13px * var(--u));
+  letter-spacing: 0.3em;
+  color: var(--sw-dim);
+}
+
+.sw-root-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(12px * var(--u));
+  min-width: min(calc(420px * var(--u)), 90vw);
+  padding: calc(24px * var(--u)) calc(30px * var(--u));
+}
+
+.sw-btn-start,
+.sw-btn-resume {
+  min-width: calc(260px * var(--u));
+  padding: calc(12px * var(--u)) calc(28px * var(--u));
+  font-size: calc(18px * var(--u));
+  letter-spacing: 0.2em;
+}
+
+.sw-root-hint {
+  margin: 0;
+  font-size: calc(12px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(8px * var(--u));
+}
+
+.sw-btn-col {
+  display: grid;
+  gap: calc(6px * var(--u));
+  width: 100%;
+}
+
+.sw-pause-title {
+  margin: 0 0 calc(6px * var(--u));
+  font-size: calc(26px * var(--u));
+  letter-spacing: 0.4em;
+  margin-right: -0.4em;
+  color: var(--sw-cyan);
+}
+
+.sw-sep {
+  width: 100%;
+  height: 1px;
+  margin: calc(4px * var(--u)) 0;
+  border: 0;
+  background: var(--sw-line);
+}
+
+.sw-root-footer {
+  font-size: calc(11px * var(--u));
+  color: rgb(207 232 238 / 40%);
+}
+
+.sw-notes {
+  display: grid;
+  gap: calc(2px * var(--u));
+  max-width: calc(480px * var(--u));
+  font-size: calc(12px * var(--u));
+  color: var(--sw-warn);
+  text-align: center;
+}
+
+.sw-notes p {
+  margin: 0;
+}
+
+/* ── 子畫面（設定、按鍵配置、說明） ─────────────────── */
+.sw-sub-screen {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(820px * var(--u)), 100%);
+  max-height: 100%;
+  padding: calc(16px * var(--u)) calc(22px * var(--u));
+  gap: calc(10px * var(--u));
+}
+
+.sw-screen-header {
+  display: flex;
+  align-items: center;
+  gap: calc(14px * var(--u));
+  padding-bottom: calc(8px * var(--u));
+  border-bottom: 1px solid var(--sw-line);
+}
+
+.sw-screen-title {
+  margin: 0;
+  font-size: calc(20px * var(--u));
+  letter-spacing: 0.2em;
+  color: var(--sw-cyan);
+}
+
+.sw-back {
+  padding: calc(4px * var(--u)) calc(12px * var(--u));
+  font-size: calc(13px * var(--u));
+}
+
+.sw-screen-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: calc(6px * var(--u));
+  scrollbar-color: rgb(57 230 255 / 35%) transparent;
+  scrollbar-width: thin;
+}
+
+.sw-screen-footer {
+  display: flex;
+  align-items: center;
+  gap: calc(12px * var(--u));
+  padding-top: calc(8px * var(--u));
+  border-top: 1px solid var(--sw-line);
+  font-size: calc(12px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-screen-footer > .sw-btn {
+  margin-left: auto;
+}
+
+/* 頁籤 */
+.sw-tabs {
+  display: flex;
+  gap: calc(4px * var(--u));
+}
+
+.sw-tab {
+  padding: calc(6px * var(--u)) calc(16px * var(--u));
+  border-color: transparent;
+  color: var(--sw-dim);
+}
+
+.sw-tab.is-active {
+  color: var(--sw-cyan);
+  border-color: var(--sw-line-strong);
+  background: rgb(57 230 255 / 10%);
+}
+
+/* 設定列 */
+.sw-settings-page {
+  display: grid;
+  gap: calc(2px * var(--u));
+}
+
+.sw-set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(calc(280px * var(--u)), auto);
+  align-items: center;
+  gap: calc(16px * var(--u));
+  padding: calc(8px * var(--u)) calc(10px * var(--u));
+  border-left: 2px solid transparent;
+}
+
+.sw-set-row:hover {
+  background: rgb(57 230 255 / 5%);
+  border-left-color: var(--sw-cyan);
+}
+
+.sw-set-text {
+  display: grid;
+}
+
+.sw-set-label {
+  font-size: calc(14px * var(--u));
+}
+
+.sw-set-hint {
+  font-size: calc(11px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-set-hint:empty {
+  display: none;
+}
+
+.sw-set-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: calc(10px * var(--u));
+}
+
+.sw-toggle {
+  min-width: calc(72px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-toggle.is-on {
+  color: #021015;
+  background: var(--sw-cyan);
+  border-color: var(--sw-cyan);
+}
+
+.sw-choice {
+  display: flex;
+  gap: 0;
+}
+
+.sw-choice-btn {
+  --cut-b: 0px;
+  min-width: calc(60px * var(--u));
+  padding: calc(6px * var(--u)) calc(12px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-choice-btn + .sw-choice-btn {
+  border-left-width: 0;
+}
+
+.sw-choice-btn.is-on {
+  color: #021015;
+  background: var(--sw-cyan);
+  border-color: var(--sw-cyan);
+}
+
+.sw-select {
+  min-width: calc(140px * var(--u));
+  padding: calc(6px * var(--u)) calc(10px * var(--u));
+  font: inherit;
+  color: var(--sw-text);
+  background: #08121c;
+  border: 1px solid var(--sw-line);
+}
+
+.sw-range {
+  width: calc(180px * var(--u));
+  accent-color: var(--sw-cyan);
+  cursor: pointer;
+}
+
+.sw-num-box {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(2px * var(--u));
+}
+
+.sw-num-input {
+  width: calc(64px * var(--u));
+  padding: calc(4px * var(--u)) calc(6px * var(--u));
+  font-size: calc(13px * var(--u));
+  text-align: right;
+  color: var(--sw-text);
+  background: rgb(0 0 0 / 35%);
+  border: 1px solid var(--sw-line);
+  user-select: text;
+}
+
+.sw-set-number .sw-num-input {
+  width: calc(90px * var(--u));
+}
+
+.sw-num-input:focus {
+  outline: none;
+  border-color: var(--sw-cyan);
+}
+
+.sw-num-unit {
+  min-width: calc(12px * var(--u));
+  font-size: calc(12px * var(--u));
+  color: var(--sw-dim);
+}
+
+.sw-set-extra {
+  min-width: calc(110px * var(--u));
+  font-size: calc(12px * var(--u));
+  color: var(--sw-cyan);
+  text-align: right;
+}
+
+.sw-settings-status {
+  color: var(--sw-good);
+}
+
+/* 按鍵配置 */
+.sw-binds {
+  display: grid;
+  gap: calc(2px * var(--u));
+}
+
+.sw-binds-head,
+.sw-bind-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(170px * var(--u)) calc(170px * var(--u));
+  align-items: center;
+  gap: calc(8px * var(--u));
+}
+
+.sw-binds-head {
+  margin-top: calc(10px * var(--u));
+  padding: calc(2px * var(--u)) calc(10px * var(--u));
+  font-size: calc(11px * var(--u));
+  letter-spacing: 0.16em;
+  color: var(--sw-dim);
+  border-bottom: 1px solid var(--sw-line);
+}
+
+.sw-binds-cat {
+  color: var(--sw-cyan);
+}
+
+.sw-binds-col {
+  text-align: center;
+}
+
+.sw-bind-row {
+  padding: calc(3px * var(--u)) calc(10px * var(--u));
+}
+
+.sw-bind-row:hover {
+  background: rgb(57 230 255 / 5%);
+}
+
+.sw-bind-slot {
+  --cut-b: calc(5px * var(--u));
+  padding: calc(5px * var(--u)) calc(8px * var(--u));
+  font-size: calc(13px * var(--u));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sw-bind-slot.is-empty {
+  color: rgb(207 232 238 / 35%);
+}
+
+.sw-bind-slot.is-capturing {
+  color: #021015;
+  background: var(--sw-cyan);
+  animation: sw-blink 0.8s steps(2, jump-none) infinite;
+}
+
+.sw-bind-slot.is-conflict {
+  color: var(--sw-warn);
+  border-color: var(--sw-warn);
+}
+
+@keyframes sw-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+.sw-feedback {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--u));
+  min-height: calc(30px * var(--u));
+  padding: calc(4px * var(--u)) calc(10px * var(--u));
+  font-size: calc(12px * var(--u));
+  white-space: pre-line;
+  border-left: 2px solid transparent;
+}
+
+.sw-feedback[data-tone='info'] {
+  border-left-color: var(--sw-cyan);
+}
+
+.sw-feedback[data-tone='good'] {
+  border-left-color: var(--sw-good);
+  color: var(--sw-good);
+}
+
+.sw-feedback[data-tone='warn'] {
+  border-left-color: var(--sw-warn);
+  color: var(--sw-warn);
+}
+
+.sw-feedback[data-tone='error'] {
+  border-left-color: var(--sw-danger);
+  color: var(--sw-danger);
+}
+
+.sw-feedback-actions {
+  display: flex;
+  gap: calc(6px * var(--u));
+  margin-left: auto;
+}
+
+/* 操作說明 */
+.sw-help-table {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(6px * var(--u)) calc(24px * var(--u));
+  margin: calc(8px * var(--u)) 0;
+}
+
+.sw-help-table dt {
+  color: var(--sw-dim);
+  text-align: right;
+}
+
+.sw-help-table dd {
+  margin: 0;
+  font-family: var(--sw-font-mono);
+  color: var(--sw-cyan);
+}
+
+.sw-help-tips {
+  margin: calc(12px * var(--u)) 0 0;
+  padding-left: calc(18px * var(--u));
+  display: grid;
+  gap: calc(4px * var(--u));
+  font-size: calc(13px * var(--u));
+  color: rgb(207 232 238 / 85%);
+}
+
+/* 窄或矮的 iframe：設定列改成上下排列。 */
+@media (max-width: 760px) {
+  .sw-set-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sw-set-control {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-height: 560px) {
+  .sw-brand-mark {
+    display: none;
+  }
+
+  .sw-root-screen {
+    gap: calc(12px * var(--u));
+  }
+}

@@ -59,6 +59,37 @@ export function resolveQualityPreset(
   };
 }
 
+// ── 玩家覆寫（M1-14 設定頁「畫面」）──────────────────────
+// 玩家可以個別覆寫渲染比例、陰影與 Bloom；'auto' = 跟隨畫質預設。存成字串列舉（設定 renderScale／shadows／bloom）。
+
+export type QualityToggle = 'auto' | 'off' | 'on';
+export const QUALITY_TOGGLES: readonly QualityToggle[] = ['auto', 'off', 'on'];
+/** 渲染比例選項：'auto' 或 0.5–1 的比例（字串）。 */
+export const RENDER_SCALE_OPTIONS = ['auto', '0.5', '0.67', '0.75', '0.85', '1'] as const;
+export type RenderScaleOption = (typeof RENDER_SCALE_OPTIONS)[number];
+
+export interface QualityOverrides {
+  quality: string;
+  renderScale: string;
+  shadows: string;
+  bloom: string;
+}
+
+/** 畫質預設套用玩家覆寫後的結果（數值已夾住）。 */
+export function effectiveQuality(
+  o: Readonly<QualityOverrides>,
+  table: Readonly<Record<QualityLevel, QualityPreset>> = QUALITY_PRESETS,
+): QualityPreset {
+  const q = resolveQualityPreset(o.quality, table);
+  if (o.renderScale !== 'auto') {
+    const s = Number(o.renderScale);
+    if (Number.isFinite(s)) q.renderScale = Math.min(RENDER_SCALE_RANGE.max, Math.max(RENDER_SCALE_RANGE.min, s));
+  }
+  if (o.shadows === 'on' || o.shadows === 'off') q.shadows = o.shadows === 'on';
+  if (o.bloom === 'on' || o.bloom === 'off') q.bloom = o.bloom === 'on';
+  return q;
+}
+
 /** 兩個預設中，需要重建後處理管線的欄位是否不同（Bloom、SMAA 開關或品質）。 */
 export function postPassesChanged(a: QualityPreset, b: QualityPreset): boolean {
   return a.bloom !== b.bloom || a.smaa !== b.smaa || (a.smaa && a.smaaQuality !== b.smaaQuality);

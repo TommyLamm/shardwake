@@ -43,6 +43,7 @@ body {
   color: var(--sw-cyan);
   background: rgb(5 8 13 / 70%);
   border: 1px solid rgb(57 230 255 / 40%);
+  z-index: 6;
   pointer-events: none;
   user-select: none;
   white-space: pre;
@@ -50,17 +51,17 @@ body {
 
 .sw-fps[hidden],
 .sw-hint[hidden],
-.sw-overlay[hidden],
 .sw-debug[hidden] {
   display: none;
 }
 
-/* 遊玩中未鎖定滑鼠時的小提示（不擋點擊）。 */
+/* 遊玩中未鎖定滑鼠時的小提示（不擋點擊；M1-14 由 ui/menu/Menu 顯示）。 */
 .sw-hint {
   position: absolute;
   left: 50%;
   bottom: 12%;
   transform: translateX(-50%);
+  z-index: 9;
   padding: 8px 16px;
   font: 14px/1.5 var(--sw-font-ui);
   text-align: center;
@@ -86,71 +87,7 @@ body {
   color: var(--sw-text);
 }
 
-/* 「點擊開始」覆蓋層（M1-03；完整選單在 M1-14）。點擊會冒泡到 #app，由 LockFlow 處理。 */
-.sw-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 24px;
-  box-sizing: border-box;
-  text-align: center;
-  background: rgb(5 8 13 / 62%);
-  cursor: pointer;
-  user-select: none;
-}
-
-.sw-overlay-title {
-  font: 600 clamp(22px, 4vw, 40px) / 1.2 var(--sw-font-ui);
-  letter-spacing: 0.08em;
-  color: var(--sw-cyan);
-  text-shadow: 0 0 18px rgb(57 230 255 / 45%);
-}
-
-.sw-overlay-prompt {
-  padding: 8px 22px;
-  font: 16px/1.5 var(--sw-font-ui);
-  color: var(--sw-text);
-  border: 1px solid rgb(57 230 255 / 60%);
-  background: rgb(57 230 255 / 8%);
-}
-
-.sw-overlay-controls {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 2px 14px;
-  margin: 0;
-  font: 12px/1.5 var(--sw-font-ui);
-  color: rgb(207 232 238 / 80%);
-}
-
-.sw-overlay-controls dt {
-  text-align: right;
-  color: rgb(207 232 238 / 60%);
-}
-
-.sw-overlay-controls dd {
-  margin: 0;
-  text-align: left;
-  font-family: var(--sw-font-mono);
-}
-
-.sw-overlay-notes {
-  max-width: 36em;
-  font: 12px/1.5 var(--sw-font-ui);
-  color: #ffb14a;
-  white-space: pre-line;
-}
-
-.sw-overlay-notes:empty {
-  display: none;
-}
-
-/* 動態準星（M1-11；M1-14 組合進 HUD）。半徑由 --sw-ch-r（px）控制，精確反映散布。 */
+/* 動態準星（M1-11；M1-14 起掛在 HUD 的全畫面層 .sw-hud）。半徑由 --sw-ch-r（px）控制，精確反映散布。 */
 .sw-crosshair {
   --sw-ch-r: 0px;
   --sw-ch-gap: 3px;
@@ -310,7 +247,7 @@ body {
   box-shadow: 0 0 6px #7ff0ff;
 }
 
-/* 命中標記（M1-12；M1-14 組合進 HUD）：畫面中心的 X，臂長 --sw-hm-len、間隙 --sw-hm-gap。 */
+/* 命中標記（M1-12；M1-14 起掛在 HUD 的全畫面層）：畫面中心的 X，臂長 --sw-hm-len、間隙 --sw-hm-gap。 */
 .sw-hitmarker {
   --sw-hm-len: 9px;
   --sw-hm-th: 2px;

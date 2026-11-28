@@ -6,7 +6,7 @@ import { InputSystem, isEditableTarget } from '@/input/Input';
 import { isHeld, wasPressed, wasReleased, type InputFrame } from '@/input/InputFrame';
 import { LockFlow, type LockFlowLock } from '@/input/LockFlow';
 import { PointerLock } from '@/input/PointerLock';
-import { controlsRows, overlayContent, type OverlayState } from '@/ui/StartOverlay';
+import { controlsRows, menuStatus, type MenuStatusState } from '@/ui/menu/menuStatus';
 
 const DT_MS = 1000 / 60;
 const DEG = Math.PI / 180;
@@ -440,8 +440,8 @@ describe('LockFlow', () => {
   });
 });
 
-describe('StartOverlay 內容', () => {
-  const base: OverlayState = {
+describe('選單狀態提示（M1-14 取代 StartOverlay）', () => {
+  const base: MenuStatusState = {
     mode: 'title',
     needsRelock: false,
     lockError: null,
@@ -450,36 +450,35 @@ describe('StartOverlay 內容', () => {
     storagePersistent: true,
   };
 
-  it('標題：點擊開始與操作說明；儲存不可用時提示', () => {
-    const c = overlayContent(base);
-    expect(c.kind).toBe('full');
-    expect(c.prompt).toBe('點擊開始');
-    expect(c.showControls).toBe(true);
-    expect(overlayContent({ ...base, storagePersistent: false }).notes.join()).toContain('目前無法存檔');
+  it('標題：沒有提示；儲存不可用時提示', () => {
+    expect(menuStatus(base)).toEqual({ notes: [], hint: null });
+    expect(menuStatus({ ...base, storagePersistent: false }).notes.join()).toContain('目前無法存檔');
+    expect(menuStatus({ ...base, audioUnavailable: true }).notes.join()).toContain('Web Audio');
   });
 
-  it('暫停：點擊繼續；剛解鎖時提示稍候；鎖定失敗提示再點一次', () => {
-    const p = overlayContent({ ...base, mode: 'paused', pauseReason: 'pointerlock', lockCooldown: true });
-    expect(p.prompt).toBe('點擊繼續');
+  it('暫停：剛解鎖時提示稍候；鎖定失敗提示再點一次；自動暫停提示', () => {
+    const p = menuStatus({ ...base, mode: 'paused', pauseReason: 'pointerlock', lockCooldown: true });
     expect(p.notes.join()).toContain('稍候');
-    const e = overlayContent({ ...base, mode: 'paused', lockError: 'SecurityError' });
+    const e = menuStatus({ ...base, mode: 'paused', lockError: 'SecurityError' });
     expect(e.notes[0]).toContain('請再點擊一次');
+    expect(menuStatus({ ...base, mode: 'paused', pauseReason: 'blur' }).notes.join()).toContain('自動暫停');
   });
 
-  it('遊玩中：鎖定時不顯示；未鎖定時顯示不擋點擊的小提示', () => {
-    expect(overlayContent({ ...base, mode: 'playing' }).kind).toBe('hidden');
-    const h = overlayContent({ ...base, mode: 'playing', needsRelock: true });
-    expect(h.kind).toBe('hint');
-    expect(h.prompt).toContain('點擊畫面');
+  it('遊玩中：鎖定時沒有提示；未鎖定時顯示不擋點擊的小提示', () => {
+    expect(menuStatus({ ...base, mode: 'playing' }).hint).toBeNull();
+    const h = menuStatus({ ...base, mode: 'playing', needsRelock: true });
+    expect(h.hint).toContain('點擊畫面');
+    expect(menuStatus({ ...base, mode: 'playing', needsRelock: true, lockError: 'X' }).hint).toContain('請再點擊一次');
   });
 
   it('操作說明的按鍵名稱來自目前綁定', () => {
     const b = new Bindings();
     const rows = Object.fromEntries(controlsRows(b));
     expect(rows['移動']).toBe('W A S D');
-    expect(rows['跳躍']).toBe('空白鍵');
-    expect(rows['暫停']).toBe('Esc');
-    b.bind('jump', 0, 'KeyJ');
-    expect(Object.fromEntries(controlsRows(b))['跳躍']).toBe('J');
+    expect(rows['蹲下／滑鏟']).toBe('C');
+    expect(rows['暫停選單']).toBe('Esc');
+    expect(rows['切換武器']).toBe('1–5 滾輪下 Q');
+    b.bind('crouch', 0, 'KeyJ');
+    expect(Object.fromEntries(controlsRows(b))['蹲下／滑鏟']).toBe('J');
   });
 });

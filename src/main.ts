@@ -4,9 +4,10 @@
 // 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）、
 // 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）、
 // 靶標與戰鬥回饋（M1-12：PlayerHealth、TargetManager（假人、移動靶、訓練無人機、DPS 計看板）、命中標記、傷害數字、受擊畫面回饋）、
-// 程序合成音效（M1-13：AudioEngine（玩家第一次操作才建立 AudioContext）、AudioEventBinder（事件 → 音效）、載入時預渲染）。
+// 程序合成音效（M1-13：AudioEngine（玩家第一次操作才建立 AudioContext）、AudioEventBinder（事件 → 音效）、載入時預渲染）、
+// HUD、選單與設定（M1-14：ui/Hud 與 ui/hud/ 的元件、ui/menu/ 的標題／暫停／設定／按鍵配置／操作說明、i18n 字串表）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
-// 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
+// 滑鼠鎖定流程見 input/LockFlow.ts：選單的「開始／繼續」按鈕與點擊背景在點擊事件中請求鎖定。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
 import * as THREE from 'three';
 import { AUDIO_CONFIG } from '@/audio/AudioConfig';
@@ -22,8 +23,7 @@ import { EventBus } from '@/core/EventBus';
 import type { GameEvents, GameMode } from '@/core/events';
 import { Game, SystemOrder } from '@/core/Game';
 import { Lifecycle } from '@/core/Lifecycle';
-import { resolveQualityPreset } from '@/core/quality';
-import { SETTINGS_SCHEMA, SettingsStore, type Settings, type SettingsKey } from '@/core/Settings';
+import { QUALITY_SETTING_KEYS, SETTINGS_SCHEMA, SettingsStore, type QualityPreset, type Settings, type SettingsKey } from '@/core/Settings';
 import { GameStorage } from '@/core/Storage';
 import { Viewport } from '@/core/Viewport';
 import { DebugPanel, hasHashFlag, type ConfigSchema, type ParamSpec } from '@/debug/DebugPanel';
@@ -63,7 +63,21 @@ import { FEEDBACK_CONFIG } from '@/ui/FeedbackConfig';
 import { damageIndicatorAngle, hitTrauma } from '@/ui/feedbackMath';
 import { HitMarker } from '@/ui/HitMarker';
 import { ScopeOverlay } from '@/ui/ScopeOverlay';
-import { StartOverlay } from '@/ui/StartOverlay';
+import { FullscreenControl } from '@/ui/fullscreen';
+import { Hud } from '@/ui/Hud';
+import { HUD_ABILITY_PANEL, HUD_CONFIG, HUD_LAYOUT_PANEL, HUD_MESSAGE_PANEL, HUD_VITALS_PANEL, HUD_WEAPON_PANEL } from '@/ui/HudConfig';
+import { menuScale } from '@/ui/hudMath';
+import { AbilitiesWidget } from '@/ui/hud/AbilitiesWidget';
+import { GrappleHintWidget, MessagesWidget, TimerWidget } from '@/ui/hud/InfoWidgets';
+import { VitalsWidget } from '@/ui/hud/VitalsWidget';
+import { WeaponWidget } from '@/ui/hud/WeaponWidget';
+import { ControlsScreen } from '@/ui/menu/ControlsScreen';
+import { Menu } from '@/ui/menu/Menu';
+import { menuStatus, type MenuStatusState } from '@/ui/menu/menuStatus';
+import { HelpScreen, PauseScreen, SCREEN, TitleScreen, type MenuActions } from '@/ui/menu/screens';
+import { SettingsScreen } from '@/ui/menu/SettingsScreen';
+import { t } from '@/i18n';
+import { version as GAME_VERSION } from '../package.json';
 import { DataLevel, LevelManager } from '@/world/Level';
 import { SceneLighting } from '@/world/Lighting';
 import { ENVIRONMENT_CONFIG, MaterialLibrary, setupEnvironment } from '@/world/Materials';
@@ -71,6 +85,8 @@ import { Sky } from '@/world/Sky';
 import { LevelDebug } from '@/world/LevelDebug';
 import { TRAINING_GROUND_ID, TrainingGround } from '@/world/levels/TrainingGround';
 import './style.css';
+import './ui/hud.css';
+import './ui/menu.css';
 
 function getAppRoot(): HTMLElement {
   const el = document.getElementById('app');
@@ -141,7 +157,6 @@ async function boot(): Promise<void> {
   // ── 輸入（M1-03）───────────────────────────────────────
   const bindings = new Bindings({ storage, bus });
   let flow: LockFlow | null = null;
-  let refreshOverlay = (): void => {};
   const pointerLock = new PointerLock({
     target: renderer.domElement,
     bus,
@@ -152,7 +167,6 @@ async function boot(): Promise<void> {
     },
     onError: (message) => {
       console.warn(`[shardwake] 滑鼠鎖定失敗：${message}`);
-      refreshOverlay();
     },
   });
   const input = new InputSystem({
@@ -166,10 +180,14 @@ async function boot(): Promise<void> {
     game,
     lock: pointerLock,
     useLock: !hasHashFlag(location.hash, 'nolock'),
-    onUpdate: () => refreshOverlay(),
   });
   const lockFlow = flow;
-  input.onAction('pause', () => lockFlow.pauseRequested());
+  // 暫停鍵：遊玩中暫停並解除鎖定；選單中為「返回上一層」（Esc 由選單自己在 capture 階段處理，這裡只會收到改綁的暫停鍵）。
+  let menuBack = (): boolean => false;
+  input.onAction('pause', () => {
+    if (game.mode === 'playing') lockFlow.pauseRequested();
+    else menuBack();
+  });
   input.onAction('debugPanel', () => panel.toggle());
   bus.on('debug:panel', ({ open }) => lockFlow.debugPanelChanged(open));
 
@@ -182,7 +200,8 @@ async function boot(): Promise<void> {
   const physics = new Physics({ bus });
   const scene = new THREE.Scene();
   // ── 視覺（M1-09）：後處理、環境反射、燈光、天空與霧、材質庫 ─────────
-  const qualityPreset = (): ReturnType<typeof resolveQualityPreset> => resolveQualityPreset(settings.get('quality'));
+  // 畫質：畫質預設套用玩家的渲染比例／陰影／Bloom 覆寫（M1-14）。
+  const qualityPreset = (): QualityPreset => settings.qualityPreset;
   const postfx = new PostFX({ renderer, scene, camera, quality: qualityPreset() });
   postfx.aberrationEnabled = settings.get('chromaticAberration');
   postfx.setSize(viewport.width, viewport.height);
@@ -365,10 +384,19 @@ async function boot(): Promise<void> {
   registerWarmup(weaponFx.root);
   game.addSystem(weaponFx);
   bus.on('level:unloaded', () => weaponFx.clear());
-  // 準星（M1-14 組合進 HUD）與狙擊鏡遮罩。
+  // ── HUD（M1-14）──────────────────────────────────────
+  // 全畫面層與 7 個錨點區域；依 iframe 短邊縮放（尺寸改變、切換顯示模式時重新計算）。準星與命中標記掛在 hud.root。
+  const hud = new Hud({ container: app, config: HUD_CONFIG });
+  const applyUiLayout = (width: number, height: number): void => {
+    hud.layout(width, height);
+    app.style.setProperty('--sw-ui-scale', menuScale(width, height, HUD_CONFIG.layout).toFixed(4));
+  };
+  applyUiLayout(viewport.width, viewport.height);
+  viewport.onResize((size) => applyUiLayout(size.width, size.height));
+  // 準星與狙擊鏡遮罩。
   const crosshairInput: CrosshairInput = { visible: false, style: 'cross', spreadDeg: 0, vFovDeg: 70, ads: 0, scope: 0 };
   const crosshair = new Crosshair({
-    container: app,
+    container: hud.root,
     getHeight: () => viewport.height,
     getInput: () => {
       const w = weapons.active;
@@ -433,7 +461,7 @@ async function boot(): Promise<void> {
   game.addSystem(hitConfirm);
   const feedback = FEEDBACK_CONFIG;
   const hitMarker = new HitMarker({
-    container: app,
+    container: hud.root,
     bus,
     config: feedback.hitMarker,
     isEnabled: () => settings.get('hitMarkers'),
@@ -461,6 +489,38 @@ async function boot(): Promise<void> {
     screen: feedback.screen,
   });
   game.addSystem(damageOverlay);
+  // HUD 元件：只讀狀態（PlayerHealth、player.abilities、WeaponManager），值改變時才寫 DOM。
+  hud.add(new VitalsWidget({ getHealth: () => health.state, config: HUD_CONFIG.vitals }));
+  hud.add(
+    new AbilitiesWidget({
+      getAbilities: () => (player.enabled ? player.abilities.state : null),
+      getGrappleKey: () => bindings.labelFor('grapple'),
+      config: HUD_CONFIG.abilities,
+    }),
+  );
+  hud.add(
+    new WeaponWidget({
+      getWeapon: () => (weapons.active ? weapons.state : null),
+      getFireMode: () => weapons.active?.def.fire.mode ?? null,
+      getSlotFilled: (slot) => weapons.slots[slot] != null,
+      getReloadKey: () => bindings.labelFor('reload'),
+      config: HUD_CONFIG.weapon,
+    }),
+  );
+  hud.add(
+    new GrappleHintWidget({
+      getAbilities: () => (player.enabled ? player.abilities.state : null),
+      getGrappleKey: () => bindings.labelFor('grapple'),
+    }),
+  );
+  const hudTimer = hud.add(new TimerWidget());
+  const hudMessages = hud.add(new MessagesWidget(HUD_CONFIG));
+  game.addSystem(hud);
+  bus.on('level:respawn', () => hudMessages.push(t('hud.msg.checkpoint'), { key: 'respawn' }));
+  bus.on('player:revived', () => hudMessages.push(t('hud.msg.revived'), { key: 'respawn' }));
+  bus.on('storage:status', ({ persistent }) =>
+    hudMessages.push(t(persistent ? 'hud.msg.storageBack' : 'hud.msg.storageLost'), { key: 'storage', tone: persistent ? 'good' : 'warn', duration: 5 }),
+  );
   onPlayerRespawn = () => {
     const lvl = currentDataLevel();
     const cp = health.config.respawnAt === 'checkpoint' && lvl ? lvl.nearestCheckpoint(player.position) : null;
@@ -690,7 +750,7 @@ async function boot(): Promise<void> {
     void warmup('切換畫質');
   };
   settings.onChange((s, changed) => {
-    if (changed.includes('quality')) applyQuality();
+    if (changed.some((k) => (QUALITY_SETTING_KEYS as readonly string[]).includes(k))) applyQuality();
     if (changed.includes('chromaticAberration')) {
       postfx.aberrationEnabled = s.chromaticAberration;
       if (!s.chromaticAberration) postfx.aberration.clear();
@@ -770,37 +830,7 @@ async function boot(): Promise<void> {
     },
   });
 
-  // ── 模式、覆蓋層與生命週期 ────────────────────────────
-  const overlay = new StartOverlay(app, bindings);
-  refreshOverlay = () =>
-    overlay.update({
-      mode: game.mode,
-      pauseReason: game.pauseReason,
-      needsRelock: lockFlow.needsRelock,
-      lockError: lockFlow.error,
-      lockCooldown: pointerLock.inCooldown,
-      useLock: lockFlow.useLock,
-      storagePersistent: storage.isPersistent,
-    });
-  // 冷卻提示會隨時間改變：非遊玩畫面時每畫面更新（內容沒變就不動 DOM）。
-  game.addSystem({
-    name: 'startOverlay',
-    order: SystemOrder.ui,
-    update() {
-      if (game.mode !== 'playing' || lockFlow.needsRelock) refreshOverlay();
-    },
-  });
-  const syncMode = (mode: GameMode): void => {
-    document.documentElement.dataset.swMode = mode;
-    refreshOverlay();
-  };
-  bus.on('game:mode', ({ to }) => {
-    lockFlow.modeChanged(to);
-    syncMode(to);
-  });
-  bus.on('storage:status', () => refreshOverlay());
-  bindings.onChange(() => refreshOverlay());
-
+  // ── 模式、選單與生命週期（M1-14）──────────────────────
   const lifecycle = new Lifecycle({ bus, onAutoPause: (reason) => game.pause(reason) });
   document.documentElement.dataset.swEmbedded = String(lifecycle.embedded);
   bus.on('lifecycle:visibility', ({ hidden }) => {
@@ -811,12 +841,114 @@ async function boot(): Promise<void> {
     }
   });
 
-  // 點擊遊戲畫面（覆蓋層會冒泡到這裡）：鎖定滑鼠並開始／繼續；調參面板內的點擊不處理。
+  // 訓練場的重設：重新開始訓練、返回標題後再開始（新的一局）。
+  const resetPlayerTo = (target: { pos: THREE.Vector3; yaw: number }): void => {
+    if (freeCam.enabled) {
+      flyState.enabled = false;
+      setFlying(false);
+    }
+    player.respawn(target);
+    ballistics.clear();
+    targets.clearBolts();
+    damageOverlay.clear();
+  };
+  const restartTraining = (): void => {
+    resetPlayerTo(levels.current?.getSpawn() ?? spawn);
+    health.reset();
+    targets.resetAll();
+    targets.dps.reset();
+    for (const w of weapons.slots) w?.reset(weapons.time);
+    if (weapons.activeSlot !== 0) weapons.selectSlot(0);
+    weaponFx.clear();
+    damageNumbers.clear();
+    hud.reset();
+  };
+  /** 回到最近的檢查點（卡住時用）。 */
+  const resetPosition = (): void => {
+    const lvl = currentDataLevel();
+    const cp = lvl ? lvl.nearestCheckpoint(player.position) : null;
+    resetPlayerTo(cp && lvl ? lvl.checkpointSpawn(cp) : (levels.current?.getSpawn() ?? spawn));
+  };
+  // 選單按鈕：開始與繼續都在點擊事件中同步請求滑鼠鎖定（瀏覽器要求使用者手勢）。
+  const menuActions: MenuActions = {
+    start: () => void lockFlow.click(),
+    resume: () => void lockFlow.click(),
+    resetPosition: () => {
+      resetPosition();
+      hudMessages.push(t('hud.msg.positionReset'), { key: 'reset' });
+      void lockFlow.click();
+    },
+    restartTraining: () => {
+      restartTraining();
+      hudMessages.push(t('hud.msg.trainingRestarted'), { key: 'reset', tone: 'good' });
+      void lockFlow.click();
+    },
+    toTitle: () => {
+      game.setMode('title');
+    },
+  };
+  const fullscreen = new FullscreenControl({ embedded: lifecycle.embedded });
+  const statusState: MenuStatusState = {
+    mode: 'boot',
+    needsRelock: false,
+    lockError: null,
+    lockCooldown: false,
+    useLock: lockFlow.useLock,
+    storagePersistent: true,
+  };
+  const menu = new Menu({
+    container: app,
+    playSound: (id) => void audio.play(id),
+    getStatus: () => {
+      const s = statusState;
+      s.mode = game.mode;
+      s.pauseReason = game.pauseReason;
+      s.needsRelock = lockFlow.needsRelock && !panel.isOpen;
+      s.lockError = lockFlow.error;
+      s.lockCooldown = pointerLock.inCooldown;
+      s.storagePersistent = storage.isPersistent;
+      s.audioUnavailable = audio.status === 'unavailable';
+      return menuStatus(s);
+    },
+  });
+  menu.register(new TitleScreen({ actions: menuActions, fullscreen, version: GAME_VERSION }));
+  menu.register(new PauseScreen({ actions: menuActions, fullscreen, version: GAME_VERSION }));
+  const settingsScreen = menu.register(new SettingsScreen({ settings, isPersistent: () => storage.isPersistent })) as SettingsScreen;
+  const controlsScreen = menu.register(new ControlsScreen({ bindings })) as ControlsScreen;
+  menu.register(new HelpScreen(bindings));
+  game.addSystem(menu);
+  menuBack = () => menu.back();
+  let firstStart = true;
+  const syncMode = (mode: GameMode): void => {
+    document.documentElement.dataset.swMode = mode;
+    menu.nav.syncMode(mode);
+    hud.setHidden('mode', mode === 'title' || mode === 'boot');
+  };
+  bus.on('game:mode', ({ from, to }) => {
+    lockFlow.modeChanged(to);
+    syncMode(to);
+    // 返回標題：下一次開始是新的一局。
+    if (to === 'title' && (from === 'playing' || from === 'paused')) restartTraining();
+    if (to === 'playing' && from === 'title' && firstStart && HUD_CONFIG.messages.pauseHintDuration > 0) {
+      firstStart = false;
+      hudMessages.push(t('hud.msg.pauseHint', { key: bindings.labelFor('pause') }), { key: 'pauseHint', duration: HUD_CONFIG.messages.pauseHintDuration });
+    }
+  });
+  // 調參面板「介面」：HUD 版面與元件數值（不存檔）。
+  const relayout = (): void => applyUiLayout(viewport.width, viewport.height);
+  panel.bindConfig('介面/HUD 版面', HUD_CONFIG.layout, HUD_LAYOUT_PANEL, { onChange: relayout });
+  panel.bindConfig('介面/生命條', HUD_CONFIG.vitals, HUD_VITALS_PANEL);
+  panel.bindConfig('介面/能力', HUD_CONFIG.abilities, HUD_ABILITY_PANEL, { onChange: relayout });
+  panel.bindConfig('介面/武器', HUD_CONFIG.weapon, HUD_WEAPON_PANEL);
+  panel.bindConfig('介面/提示訊息', HUD_CONFIG.messages, HUD_MESSAGE_PANEL);
+  panel.bindConfig('介面/提示訊息', HUD_CONFIG, { grappleHintDistance: { label: '可勾取顯示距離' } });
+
+  // 遊玩中未鎖定（開過調參面板）時點擊畫面重新鎖定；選單與調參面板內的點擊不處理（選單按鈕自己處理開始／繼續）。
   app.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || (e.target as Element | null)?.closest('.sw-debug')) return;
+    if (e.button !== 0 || game.mode !== 'playing') return;
+    if ((e.target as Element | null)?.closest('.sw-debug, .sw-menu')) return;
     void lockFlow.click();
   });
-
   // #debug 時把核心物件掛到 window，方便主控台與自動化測試檢查。
   const exposeDebug = (): void => {
     if (hasHashFlag(location.hash, 'debug')) {
@@ -829,6 +961,7 @@ async function boot(): Promise<void> {
         ...{ viewmodel, weaponFx, crosshair, scopeOverlay },
         ...{ health, targets, hitConfirm, hitMarker, damageNumbers, damageOverlay, combatPanel, feedback },
         ...{ audio, audioEvents, audioTools: { renderStress, buildStressScenario } },
+        ...{ hud, hudTimer, hudMessages, menu, menuActions, settingsScreen, controlsScreen, fullscreen },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

@@ -1,0 +1,514 @@
+/* HUD（M1-14）：細線框、斜角、青色主色、等寬數字。尺寸都乘 --sw-hud-scale（依 iframe 短邊，Hud.layout 設定）。
+   數值條用 transform: scaleX、冷卻環用 stroke-dashoffset、動畫只用 transform／opacity（不觸發版面重排）。 */
+.sw-hud {
+  --sw-hud-scale: 1;
+  --sw-hud-margin: 32px;
+  --sw-hud-safe-w: 100%;
+  --s: var(--sw-hud-scale);
+  --sw-hud-line: rgb(57 230 255 / 38%);
+  --sw-hud-bg: rgb(4 10 18 / 58%);
+  --sw-hud-shield: #4fd8ff;
+  --sw-hud-health: #e9f6f8;
+  --sw-hud-warn: #ffb14a;
+  --sw-hud-danger: #ff4a5a;
+  --sw-hud-dim: rgb(207 232 238 / 55%);
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  user-select: none;
+  color: var(--sw-text);
+  font-family: var(--sw-font-ui);
+}
+
+.sw-hud[hidden],
+.sw-hud [hidden] {
+  display: none !important;
+}
+
+.sw-hud .sw-num,
+.sw-num {
+  font-family: var(--sw-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 安全區：超寬螢幕時左右元件往中間收。 */
+.sw-hud-safe {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: var(--sw-hud-safe-w);
+  transform: translateX(-50%);
+}
+
+.sw-hud-region {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--s));
+}
+
+.sw-hud-top {
+  top: var(--sw-hud-margin);
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+
+.sw-hud-topLeft {
+  top: var(--sw-hud-margin);
+  left: var(--sw-hud-margin);
+}
+
+.sw-hud-topRight {
+  top: var(--sw-hud-margin);
+  right: var(--sw-hud-margin);
+  align-items: flex-end;
+}
+
+.sw-hud-bottomLeft {
+  bottom: var(--sw-hud-margin);
+  left: var(--sw-hud-margin);
+}
+
+.sw-hud-bottomCenter {
+  bottom: var(--sw-hud-margin);
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+
+.sw-hud-bottomRight {
+  bottom: var(--sw-hud-margin);
+  right: var(--sw-hud-margin);
+  align-items: flex-end;
+}
+
+.sw-hud-center {
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+/* 面板：細線框 + 左上／右下斜角。 */
+.sw-hud-panel {
+  position: relative;
+  padding: calc(8px * var(--s)) calc(12px * var(--s));
+  background: linear-gradient(135deg, var(--sw-hud-bg), rgb(4 10 18 / 30%));
+  border: 1px solid var(--sw-hud-line);
+  clip-path: polygon(
+    calc(10px * var(--s)) 0,
+    100% 0,
+    100% calc(100% - 10px * var(--s)),
+    calc(100% - 10px * var(--s)) 100%,
+    0 100%,
+    0 calc(10px * var(--s))
+  );
+}
+
+.sw-hud-panel::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(14px * var(--s));
+  height: calc(14px * var(--s));
+  background: linear-gradient(135deg, transparent 0 calc(50% - 1px), var(--sw-cyan) calc(50% - 1px) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+  opacity: 0.8;
+}
+
+/* ── 左下：護盾／生命 ───────────────────────────────── */
+.sw-vitals {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--s));
+  width: calc(300px * var(--s));
+}
+
+.sw-bar {
+  display: grid;
+  grid-template-columns: calc(38px * var(--s)) 1fr calc(40px * var(--s));
+  align-items: center;
+  gap: calc(8px * var(--s));
+  font-size: calc(12px * var(--s));
+}
+
+.sw-bar-label {
+  color: var(--sw-hud-dim);
+  letter-spacing: 0.08em;
+}
+
+.sw-bar-num {
+  text-align: right;
+  font-size: calc(17px * var(--s));
+  font-weight: 600;
+}
+
+.sw-bar-track {
+  position: relative;
+  height: calc(9px * var(--s));
+  overflow: hidden;
+  background: rgb(255 255 255 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
+  transform: skewX(-20deg);
+}
+
+.sw-bar-fill,
+.sw-bar-trail {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  will-change: transform;
+}
+
+.sw-bar-fill {
+  background: currentColor;
+}
+
+.sw-bar-trail {
+  background: rgb(255 255 255 / 85%);
+  opacity: 0.7;
+}
+
+.sw-bar-shield {
+  color: var(--sw-hud-shield);
+}
+
+.sw-bar-shield .sw-bar-trail {
+  background: #c9f4ff;
+}
+
+.sw-bar-health {
+  color: var(--sw-hud-health);
+}
+
+.sw-bar-health .sw-bar-trail {
+  background: var(--sw-hud-danger);
+}
+
+.sw-bar.is-empty .sw-bar-num {
+  color: var(--sw-hud-dim);
+}
+
+.sw-bar-shield.is-recharging .sw-bar-fill {
+  animation: sw-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.sw-bar-health.is-low {
+  color: var(--sw-hud-danger);
+}
+
+.sw-bar-health.is-low .sw-bar-fill {
+  animation: sw-pulse 0.55s ease-in-out infinite alternate;
+}
+
+@keyframes sw-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+/* ── 左下：能力 ─────────────────────────────────────── */
+.sw-abilities {
+  display: flex;
+  align-items: center;
+  gap: calc(16px * var(--s));
+  font-size: calc(11px * var(--s));
+}
+
+.sw-ability {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--s));
+  color: var(--sw-hud-dim);
+  letter-spacing: 0.08em;
+}
+
+.sw-pips {
+  display: flex;
+  gap: calc(4px * var(--s));
+}
+
+.sw-pip {
+  position: relative;
+  width: calc(10px * var(--s));
+  height: calc(18px * var(--s));
+  overflow: hidden;
+  border: 1px solid var(--sw-hud-line);
+  transform: skewX(-20deg);
+}
+
+.sw-pip-fill {
+  position: absolute;
+  inset: 0;
+  background: rgb(57 230 255 / 45%);
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.sw-pip.is-full .sw-pip-fill {
+  background: var(--sw-cyan);
+  box-shadow: 0 0 6px var(--sw-cyan);
+}
+
+.sw-ability-jet {
+  transition: opacity 0.4s;
+}
+
+.sw-ability-jet.is-faded {
+  opacity: 0.35;
+}
+
+.sw-jet-track {
+  width: calc(64px * var(--s));
+  height: calc(6px * var(--s));
+  color: #ff9a3d;
+}
+
+.sw-ability-jet.is-active .sw-jet-track {
+  color: #ffd27a;
+}
+
+.sw-ring-wrap {
+  --sw-ring-size: 30px;
+  position: relative;
+  width: var(--sw-ring-size);
+  height: var(--sw-ring-size);
+}
+
+.sw-ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sw-ring-bg {
+  fill: none;
+  stroke: rgb(255 255 255 / 12%);
+  stroke-width: 3;
+}
+
+.sw-ring-fg {
+  fill: none;
+  stroke: rgb(57 230 255 / 50%);
+  stroke-width: 3;
+}
+
+.sw-ability-grapple.is-ready .sw-ring-fg {
+  stroke: var(--sw-cyan);
+}
+
+.sw-ability-grapple.is-active .sw-ring-fg {
+  stroke: #ff3df0;
+}
+
+.sw-ring-key {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--sw-font-mono);
+  font-size: calc(10px * var(--s));
+  color: var(--sw-text);
+}
+
+/* ── 右下：武器 ─────────────────────────────────────── */
+.sw-weapon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(2px * var(--s));
+  min-width: calc(220px * var(--s));
+  transition: opacity 0.15s;
+}
+
+.sw-weapon.is-swapping {
+  opacity: 0.6;
+}
+
+.sw-slots {
+  display: flex;
+  gap: calc(4px * var(--s));
+  font-size: calc(10px * var(--s));
+}
+
+.sw-slot {
+  width: calc(16px * var(--s));
+  text-align: center;
+  color: rgb(207 232 238 / 25%);
+  border-bottom: 2px solid transparent;
+}
+
+.sw-slot.is-filled {
+  color: var(--sw-hud-dim);
+}
+
+.sw-slot.is-active {
+  color: var(--sw-cyan);
+  border-bottom-color: var(--sw-cyan);
+}
+
+.sw-weapon-name {
+  font-size: calc(14px * var(--s));
+  letter-spacing: 0.04em;
+}
+
+.sw-ammo-row {
+  display: flex;
+  align-items: baseline;
+  gap: calc(6px * var(--s));
+}
+
+.sw-ammo {
+  font-size: calc(40px * var(--s));
+  font-weight: 700;
+  line-height: 1;
+  color: var(--sw-text);
+  text-shadow: 0 0 12px rgb(57 230 255 / 35%);
+}
+
+.sw-ammo-sep,
+.sw-reserve {
+  font-size: calc(18px * var(--s));
+  color: var(--sw-hud-dim);
+}
+
+.sw-ammo-row[data-tone='low'] .sw-ammo {
+  color: var(--sw-hud-warn);
+}
+
+.sw-ammo-row[data-tone='empty'] .sw-ammo {
+  color: var(--sw-hud-danger);
+}
+
+.sw-weapon-meta {
+  font-size: calc(11px * var(--s));
+  color: var(--sw-hud-dim);
+  letter-spacing: 0.1em;
+}
+
+.sw-reload {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--s));
+  font-size: calc(11px * var(--s));
+  color: var(--sw-hud-warn);
+}
+
+.sw-reload .sw-bar-track {
+  width: calc(90px * var(--s));
+  height: calc(4px * var(--s));
+}
+
+.sw-reload-prompt {
+  font-size: calc(12px * var(--s));
+  color: var(--sw-hud-danger);
+  animation: sw-pulse 0.6s ease-in-out infinite alternate;
+}
+
+/* ── 中央：可勾取 ───────────────────────────────────── */
+.sw-grapple-hint {
+  position: absolute;
+  left: 0;
+  top: calc(34px * var(--s));
+  display: flex;
+  gap: calc(6px * var(--s));
+  white-space: nowrap;
+  transform: translateX(-50%);
+  font-size: calc(12px * var(--s));
+  color: var(--sw-cyan);
+  text-shadow: 0 0 4px rgb(0 0 0 / 90%);
+  letter-spacing: 0.06em;
+}
+
+.sw-grapple-hint-dist {
+  color: var(--sw-hud-dim);
+}
+
+/* ── 上方：計時器與提示 ─────────────────────────────── */
+.sw-timer {
+  display: grid;
+  justify-items: center;
+  min-width: calc(150px * var(--s));
+}
+
+.sw-timer-label {
+  font-size: calc(10px * var(--s));
+  color: var(--sw-hud-dim);
+  letter-spacing: 0.2em;
+}
+
+.sw-timer-time {
+  font-size: calc(28px * var(--s));
+  font-weight: 600;
+}
+
+.sw-timer.is-running .sw-timer-time {
+  color: var(--sw-cyan);
+}
+
+.sw-timer-split,
+.sw-timer-best {
+  font-size: calc(11px * var(--s));
+  color: var(--sw-hud-dim);
+}
+
+.sw-timer-split:empty,
+.sw-timer-best:empty {
+  display: none;
+}
+
+.sw-timer-split {
+  color: #6dffb0;
+}
+
+.sw-timer-split.is-behind {
+  color: var(--sw-hud-danger);
+}
+
+.sw-messages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(4px * var(--s));
+}
+
+.sw-message {
+  padding: calc(4px * var(--s)) calc(14px * var(--s));
+  font-size: calc(13px * var(--s));
+  background: rgb(4 10 18 / 62%);
+  border-left: 2px solid var(--sw-cyan);
+  border-right: 2px solid var(--sw-cyan);
+  white-space: nowrap;
+  animation: sw-msg-in 0.18s ease-out;
+}
+
+.sw-message[data-tone='warn'] {
+  border-color: var(--sw-hud-warn);
+  color: var(--sw-hud-warn);
+}
+
+.sw-message[data-tone='good'] {
+  border-color: #6dffb0;
+}
+
+@keyframes sw-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-6px * var(--s)));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sw-hud-text {
+  font-size: calc(12px * var(--s));
+  color: var(--sw-hud-dim);
+}
