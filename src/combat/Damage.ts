@@ -1,4 +1,4 @@
-// 傷害資料與可受擊目標（M1-10）。
+// 傷害資料、可受擊目標與傷害計算管線（M1-10；M1-12 抽出 computeDamage 管線）。
 //
 // - Damageable：可受傷害的目標（M1-12 的靶標、M3 的敵人、選填的玩家自身）。
 // - Hitbox：碰撞體 → 目標與部位（身體／弱點）。登記在 Physics 的 SurfaceRegistry 的 owner 欄位
@@ -6,6 +6,10 @@
 //   受擊碰撞體要放在 CollisionGroup.ENEMY（COLLISION_PRESETS.enemy），hitscan 與投射物才打得到。
 // - DamageInfo：每一筆傷害（每顆彈丸、每次範圍傷害、每次近戰各一筆），經 EventBus 的 `combat:damage` 發出。
 //   payload 物件重複使用：要保存請自行複製。
+// - computeDamage：傷害計算管線（基礎 → 距離衰減（範圍傷害改用半徑衰減）→ 弱點倍率 → 部位倍率）。
+//   M2-02 在「弱點倍率」之後加入詞綴與元素、防禦層（DamageBreakdown 加欄位），perk 的 modifyDamage 仍在 Ballistics.deal。
+//   Ballistics 的 hitscan、投射物直擊與範圍傷害都經過這裡；M3 的敵人攻擊玩家也用同一個函式。
+// - 命中區由 collider 標記：registerHitbox(physics, collider, target, 'body' | 'crit', { multiplier })。
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Physics, Vec3Like } from '@/physics/Physics';
 import type { SurfaceType } from '@/physics/SurfaceRegistry';
@@ -142,4 +146,75 @@ export function falloffMultiplier(distance: number, start: number, end: number, 
   if (!(end > start) || distance >= end) return minMult;
   const t = (distance - start) / (end - start);
   return 1 + (minMult - 1) * t;
+}
+
+/** 傷害計算的輸入（武器 DamageDef 的欄位 + 命中資訊）。 */
+export interface DamageCalcInput {
+  /** 基礎傷害（每顆彈丸、投射物直擊或範圍中心傷害）。 */
+  base: number;
+  /** 射擊起點（或爆炸點）到命中點的距離（m）。 */
+  distance: number;
+  /** 距離衰減（見 falloffMultiplier）；範圍傷害不使用。 */
+  falloffStart: number;
+  falloffEnd: number;
+  minMult: number;
+  /** 弱點倍率（zone = 'crit' 且不是範圍傷害時套用）。 */
+  critMult: number;
+  zone: HitZone;
+  /** Hitbox 的部位倍率（預設 1）。 */
+  zoneMultiplier?: number | undefined;
+  /** 範圍傷害：以「距離 / 半徑」線性衰減到 minMult，不套用距離衰減與弱點。 */
+  splash?: { radius: number; minMult: number } | null | undefined;
+}
+
+/** 傷害計算的各階段結果（除錯面板、單元測試、M2-02 的詞綴與元素擴充）。 */
+export interface DamageBreakdown {
+  base: number;
+  /** 距離衰減倍率（範圍傷害時為範圍衰減倍率）。 */
+  falloff: number;
+  /** 弱點倍率（沒有命中弱點時 1）。 */
+  crit: number;
+  /** 部位倍率。 */
+  zone: number;
+  isCrit: boolean;
+  /** 最終傷害 = base × falloff × crit × zone。 */
+  amount: number;
+}
+
+export function createDamageBreakdown(): DamageBreakdown {
+  return { base: 0, falloff: 1, crit: 1, zone: 1, isCrit: false, amount: 0 };
+}
+
+/** 範圍傷害的衰減倍率：中心 1，半徑處 minMult，中間線性（半徑以外也是 minMult；呼叫端負責範圍判定）。 */
+export function splashMultiplier(distance: number, radius: number, minMult: number): number {
+  return falloffMultiplier(Math.min(distance, radius), 0, radius, minMult);
+}
+
+/**
+ * 傷害計算管線：基礎 → 距離衰減（或範圍衰減）→ 弱點倍率 → 部位倍率。
+ * 乘法順序固定（base × falloff × crit × zone），結果與 M1-10 的內嵌算式逐位元相同。out 可重複使用。
+ */
+export function computeDamage(input: Readonly<DamageCalcInput>, out: DamageBreakdown = createDamageBreakdown()): DamageBreakdown {
+  const splash = input.splash ?? null;
+  out.base = input.base;
+  if (splash) {
+    out.falloff = splashMultiplier(input.distance, splash.radius, splash.minMult);
+    out.isCrit = false;
+    out.crit = 1;
+  } else {
+    out.falloff = falloffMultiplier(input.distance, input.falloffStart, input.falloffEnd, input.minMult);
+    out.isCrit = input.zone === 'crit';
+    out.crit = out.isCrit ? input.critMult : 1;
+  }
+  out.zone = input.zoneMultiplier ?? 1;
+  out.amount = out.base * out.falloff * out.crit * out.zone;
+  return out;
+}
+
+/** DamageInfo 中的攻擊來源位置（命中點沿傷害方向倒退 distance）：受擊方向指示用。 */
+export function damageSourcePosition(info: Readonly<DamageInfo>, out: Vec3Like): Vec3Like {
+  out.x = info.point.x - info.dir.x * info.distance;
+  out.y = info.point.y - info.dir.y * info.distance;
+  out.z = info.point.z - info.dir.z * info.distance;
+  return out;
 }

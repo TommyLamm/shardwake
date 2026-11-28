@@ -309,3 +309,139 @@ body {
   background: #7ff0ff;
   box-shadow: 0 0 6px #7ff0ff;
 }
+
+/* 命中標記（M1-12；M1-14 組合進 HUD）：畫面中心的 X，臂長 --sw-hm-len、間隙 --sw-hm-gap。 */
+.sw-hitmarker {
+  --sw-hm-len: 9px;
+  --sw-hm-th: 2px;
+  --sw-hm-gap: 5px;
+  --sw-hm-color: #fff;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.sw-hitmarker > i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  width: var(--sw-hm-len);
+  height: var(--sw-hm-th);
+  margin-top: calc(var(--sw-hm-th) / -2);
+  background: var(--sw-hm-color);
+  transform-origin: 0 50%;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 90%));
+}
+
+.sw-hm-a {
+  transform: rotate(45deg) translateX(var(--sw-hm-gap));
+}
+
+.sw-hm-b {
+  transform: rotate(135deg) translateX(var(--sw-hm-gap));
+}
+
+.sw-hm-c {
+  transform: rotate(225deg) translateX(var(--sw-hm-gap));
+}
+
+.sw-hm-d {
+  transform: rotate(315deg) translateX(var(--sw-hm-gap));
+}
+
+/* 浮動傷害數字（M1-12）：每個數字以 transform 定位（左上角為原點）。 */
+.sw-dmgnums {
+  --sw-dmg-size: 17px;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sw-dmgnum {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--sw-font-mono);
+  font-size: var(--sw-dmg-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow:
+    0 0 2px rgb(0 0 0 / 95%),
+    0 1px 3px rgb(0 0 0 / 80%);
+  will-change: transform, opacity;
+}
+
+/* 受擊畫面回饋（M1-12）：方向指示、護盾破裂、受擊閃光、低生命暗角、死亡淡出。 */
+.sw-dmgfx {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.sw-dmgfx > * {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sw-lowhp {
+  background: radial-gradient(ellipse at 50% 50%, transparent 0 45%, rgb(120 0 8 / 55%) 75%, rgb(150 0 10 / 92%) 100%);
+}
+
+.sw-hitflash {
+  --sw-flash-color: #ff2a2a;
+  box-shadow: inset 0 0 12vmin 2vmin var(--sw-flash-color);
+}
+
+.sw-hitflash-shield {
+  --sw-flash-color: #5fd2ff;
+}
+
+.sw-shieldbreak {
+  width: 100%;
+  height: 100%;
+}
+
+.sw-dmgdir {
+  --sw-dd-r: 180px;
+  --sw-dd-th: 7px;
+  --sw-dd-arc: 64deg;
+  filter: drop-shadow(0 0 5px rgb(255 40 40 / 70%));
+}
+
+.sw-dmgdir > i {
+  --sw-dd-color: #ff3030;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  box-sizing: border-box;
+  width: calc(var(--sw-dd-r) * 2);
+  height: calc(var(--sw-dd-r) * 2);
+  border-radius: 50%;
+  border: var(--sw-dd-th) solid var(--sw-dd-color);
+  /* 只留下正上方 --sw-dd-arc 的弧（元素再依攻擊方向旋轉），兩端淡出。 */
+  mask-image: conic-gradient(
+    from calc(var(--sw-dd-arc) / -2),
+    transparent 0,
+    #000 calc(var(--sw-dd-arc) * 0.2),
+    #000 calc(var(--sw-dd-arc) * 0.8),
+    transparent var(--sw-dd-arc)
+  );
+  transform: translate(-50%, -50%);
+}
+
+.sw-deathfade {
+  background: #000;
+}

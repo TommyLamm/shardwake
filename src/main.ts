@@ -2,7 +2,8 @@
 // M1-07 二段跳、噴射、Dash、抓鉤與繩索視覺）、鏡頭手感（M1-08：CameraRig、速度線）、
 // 視覺風格與後處理（M1-09：材質庫、程序貼圖、燈光與陰影、天空與霧、全息看板、PostFX、畫質預設、著色器預熱）、
 // 武器核心邏輯（M1-10：WeaponManager、Ballistics、5 把原型武器；開火震動與爆炸色差接到 CameraRig／PostFX）、
-// 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）。
+// 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）、
+// 靶標與戰鬥回饋（M1-12：PlayerHealth、TargetManager（假人、移動靶、訓練無人機、DPS 計看板）、命中標記、傷害數字、受擊畫面回饋）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 「點擊開始」覆蓋層與滑鼠鎖定流程見 input/LockFlow.ts、ui/StartOverlay.ts；完整選單在 M1-14。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
@@ -39,13 +40,22 @@ import { Physics, PhysicsSystem } from '@/physics/Physics';
 import { MovementDebug } from '@/player/MovementDebug';
 import { bindMovementPanel } from '@/player/MovementPanel';
 import { PlayerController } from '@/player/PlayerController';
+import { bindCombatPanel } from '@/combat/CombatPanel';
 import { makeHitbox, registerHitbox } from '@/combat/Damage';
+import { HitConfirmSystem } from '@/combat/HitConfirm';
+import { PlayerHealth } from '@/combat/PlayerHealth';
+import { TargetManager, type TargetPlayerInfo } from '@/combat/targets/TargetManager';
 import { Ballistics } from '@/weapons/Ballistics';
 import { WeaponManager } from '@/weapons/WeaponManager';
 import { bindWeaponPanel } from '@/weapons/WeaponPanel';
 import { Viewmodel } from '@/weapons/Viewmodel';
 import { bindPresentationPanel } from '@/weapons/ViewmodelPanel';
 import { Crosshair, crosshairStyleFor, effectiveSpreadDeg, type CrosshairInput } from '@/ui/Crosshair';
+import { DamageNumbers } from '@/ui/DamageNumbers';
+import { DamageOverlay } from '@/ui/DamageOverlay';
+import { FEEDBACK_CONFIG } from '@/ui/FeedbackConfig';
+import { damageIndicatorAngle, hitTrauma } from '@/ui/feedbackMath';
+import { HitMarker } from '@/ui/HitMarker';
 import { ScopeOverlay } from '@/ui/ScopeOverlay';
 import { StartOverlay } from '@/ui/StartOverlay';
 import { DataLevel, LevelManager } from '@/world/Level';
@@ -53,7 +63,7 @@ import { SceneLighting } from '@/world/Lighting';
 import { ENVIRONMENT_CONFIG, MaterialLibrary, setupEnvironment } from '@/world/Materials';
 import { Sky } from '@/world/Sky';
 import { LevelDebug } from '@/world/LevelDebug';
-import { TrainingGround } from '@/world/levels/TrainingGround';
+import { TRAINING_GROUND_ID, TrainingGround } from '@/world/levels/TrainingGround';
 import './style.css';
 
 function getAppRoot(): HTMLElement {
@@ -266,6 +276,20 @@ async function boot(): Promise<void> {
     getPlayer: () => (player.enabled ? player.state : null),
   });
   game.addSystem(cameraRig);
+  // 玩家生命與護盾（M1-12）：敵方能量球、自傷打在這裡；死亡淡出後在出生點（或最近檢查點）重生。
+  let onPlayerRespawn = (): void => {};
+  const health = new PlayerHealth({
+    bus,
+    getCenter: (out) => {
+      if (!player.enabled) return null;
+      out.x = player.position.x;
+      out.y = player.position.y + player.height / 2;
+      out.z = player.position.z;
+      return out;
+    },
+    onRespawn: () => onPlayerRespawn(),
+  });
+  game.addSystem(health);
   // 武器（M1-10）：射擊起點是玩家這一步的眼睛，視線用 input.view（含後座偏移）；開鏡縮放寫入 CameraRig.fovZoom。
   const ballistics = new Ballistics({
     physics,
@@ -278,11 +302,13 @@ async function boot(): Promise<void> {
       return out;
     },
     applyPlayerImpulse: (dv) => player.addImpulse(dv),
+    getSelfTarget: () => health,
   });
   const weapons = new WeaponManager({
     getFrame: () => input.frame,
     view: input.view,
-    getPlayer: () => (player.enabled ? player : null),
+    // 死亡淡出中不能射擊（M1-12）。
+    getPlayer: () => (player.enabled && health.alive ? player : null),
     ballistics,
     bus,
     getSettings: () => settings.value,
@@ -357,6 +383,121 @@ async function boot(): Promise<void> {
     getAmount: () => (player.enabled && game.mode !== 'title' ? viewmodel.state.scope : 0),
   });
   game.addSystem(scopeOverlay);
+  // ── 靶標與戰鬥回饋（M1-12）────────────────────────────
+  const targetPlayerInfo = {
+    feet: player.position,
+    center: { x: 0, y: 0, z: 0 },
+    eye: { x: 0, y: 0, z: 0 },
+    height: 0,
+    radius: 0,
+  };
+  const getTargetPlayer = (): TargetPlayerInfo | null => {
+    if (!player.enabled || !health.alive) return null;
+    const t = targetPlayerInfo;
+    t.height = player.height;
+    t.radius = player.config.radius;
+    t.center.x = player.position.x;
+    t.center.y = player.position.y + player.height / 2;
+    t.center.z = player.position.z;
+    t.eye.x = player.position.x;
+    t.eye.y = player.position.y + player.eyeHeight;
+    t.eye.z = player.position.z;
+    return t;
+  };
+  const weaponName = (id: string): string => weapons.slots.find((w) => w?.id === id)?.def.name ?? id;
+  const targets = new TargetManager({
+    physics,
+    bus,
+    scene,
+    glow: library,
+    holoUniforms: library.holoUniforms,
+    getPlayer: getTargetPlayer,
+    getPlayerTarget: () => health,
+    getZoneId: () => currentDataLevel()?.zone?.id ?? null,
+    dronesEnabled: () => settings.get('trainingDrones'),
+    weaponName,
+  });
+  if (level.id === TRAINING_GROUND_ID) targets.build();
+  bus.on('level:loaded', ({ id }) => {
+    if (id === TRAINING_GROUND_ID) targets.build();
+    health.reset();
+  });
+  game.addSystem(targets);
+  const hitConfirm = new HitConfirmSystem({ bus, getSelf: () => health });
+  game.addSystem(hitConfirm);
+  const feedback = FEEDBACK_CONFIG;
+  const hitMarker = new HitMarker({
+    container: app,
+    bus,
+    config: feedback.hitMarker,
+    isEnabled: () => settings.get('hitMarkers'),
+  });
+  game.addSystem(hitMarker);
+  const damageNumbers = new DamageNumbers({
+    container: app,
+    bus,
+    camera,
+    getSize: () => viewport,
+    config: feedback.numbers,
+    getSelf: () => health,
+    isEnabled: () => settings.get('damageNumbers'),
+    isMerge: () => settings.get('damageNumberMerge'),
+  });
+  game.addSystem(damageNumbers);
+  const damageOverlay = new DamageOverlay({
+    container: app,
+    bus,
+    health,
+    getYaw: () => input.view.viewYaw,
+    getPlayerPos: () => (player.enabled ? player.position : null),
+    getSize: () => viewport,
+    indicator: feedback.indicator,
+    screen: feedback.screen,
+  });
+  game.addSystem(damageOverlay);
+  onPlayerRespawn = () => {
+    const lvl = currentDataLevel();
+    const cp = health.config.respawnAt === 'checkpoint' && lvl ? lvl.nearestCheckpoint(player.position) : null;
+    const target = cp && lvl ? lvl.checkpointSpawn(cp) : (levels.current?.getSpawn() ?? spawn);
+    if (player.enabled) player.respawn(target);
+    ballistics.clear();
+    targets.clearBolts();
+    damageOverlay.clear();
+  };
+  bus.on('level:unloaded', () => {
+    damageNumbers.clear();
+    damageOverlay.clear();
+  });
+  // 受擊鏡頭：震動、往遠離攻擊方向傾斜、色差（數值在 FEEDBACK_CONFIG.camera）。
+  bus.on('player:damaged', (e) => {
+    const c = feedback.camera;
+    const trauma = hitTrauma(e.amount, e.shieldBroken, c);
+    if (trauma > 0) cameraRig.addTrauma(trauma);
+    const a = damageIndicatorAngle(input.view.viewYaw, player.position.x, player.position.z, e.sourcePos.x, e.sourcePos.z);
+    if (c.rollDeg > 0) cameraRig.addRollImpulse(Math.sin(a) * c.rollDeg);
+    if (e.blocked) return;
+    if (e.shieldBroken) postfx.pulseAberration(c.shieldBreakAberration, c.shieldBreakAberrationTime);
+    else if (e.healthDamage > 0) postfx.pulseAberration(Math.min(1, c.aberration + e.healthDamage * c.aberrationPerDamage), c.aberrationTime);
+  });
+  // 擊殺特效：無人機爆炸（不留焦痕）、假人頭部火花。
+  const up = { x: 0, y: 1, z: 0 };
+  bus.on('target:killed', (e) => {
+    if (e.kind === 'drone') {
+      weaponFx.spawnExplosion(e.point, up, targets.config.drone.explosionRadius, { scorch: false });
+      cameraRig.addTraumaAt(e.point, feedback.camera.droneKillTrauma, targets.config.drone.explosionRadius * 6);
+    } else {
+      weaponFx.spawnImpact(e.point, up, 'metal', { scale: 2.5, decal: false });
+    }
+  });
+  // 敵方能量球的命中特效（橘色能量火花、不留彈孔）。
+  bus.on('enemy:projectile', (e) => {
+    if (e.phase === 'expire') return;
+    weaponFx.spawnImpact(e.position, e.normal, 'energy', {
+      color: targets.visuals?.style.boltColor ?? 0xff6a2a,
+      decal: false,
+      scale: e.phase === 'hitPlayer' ? 0.6 : 1.2,
+    });
+  });
   game.addSystem(lighting);
   game.addSystem(sky);
   game.addSystem({
@@ -449,6 +590,19 @@ async function boot(): Promise<void> {
   game.addSystem(weaponPanel);
   // 武器表現（M1-11）：viewmodel 擺位與動畫、特效、準星、監看與測試。
   game.addSystem(bindPresentationPanel({ panel, viewmodel, fx: weaponFx, crosshair, camera }));
+  // 戰鬥（M1-12）：靶標、無人機、玩家生命與無敵模式、命中回饋、DPS 計、測試按鈕。
+  const combatPanel = bindCombatPanel({
+    panel,
+    bus,
+    targets,
+    health,
+    feedback,
+    getDronesEnabled: () => settings.get('trainingDrones'),
+    setDronesEnabled: (on) => settings.set('trainingDrones', on),
+    getPlayerCenter: () => health.getCenter({ x: 0, y: 0, z: 0 }),
+    getYaw: () => input.view.viewYaw,
+  });
+  game.addSystem(combatPanel);
   // 視覺（M1-09）：畫質預設、後處理、燈光、天空與霧、全息看板、材質；畫質切換與著色器預熱。
   let warmupReport: WarmupReport | null = null;
   let warmupRunning: Promise<void> | null = null;
@@ -619,6 +773,7 @@ async function boot(): Promise<void> {
         ...{ postfx, lighting, sky, library, getWarmupReport: () => warmupReport, warmup },
         ...{ weapons, ballistics, weaponPanel, combat: { registerHitbox, makeHitbox } },
         ...{ viewmodel, weaponFx, crosshair, scopeOverlay },
+        ...{ health, targets, hitConfirm, hitMarker, damageNumbers, damageOverlay, combatPanel, feedback },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }

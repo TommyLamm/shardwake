@@ -206,8 +206,58 @@ export interface GameEvents {
   };
 
   // ── combat：傷害（M1-10 發出，M1-12 受擊回饋）───────────
-  /** 每一筆傷害（每顆彈丸、每次範圍傷害、每次近戰）；欄位見 combat/Damage.ts 的 DamageInfo。 */
+  /**
+   * 每一筆傷害（每顆彈丸、每次範圍傷害、每次近戰；M1-12 起也包含打在玩家身上的傷害，target 為 PlayerHealth、
+   * source 為攻擊者 id）；欄位見 combat/Damage.ts 的 DamageInfo。
+   */
   'combat:damage': DamageInfo;
+  /**
+   * 命中確認（M1-12）：玩家這一步造成的傷害彙總（每個固定步最多一次；霰彈 10 顆彈丸只發一次）。
+   * kind 為最高優先的結果（kill > crit > hit）；命中標記（ui/HitMarker）與 M1-13 命中音效使用。
+   */
+  'combat:hit': { kind: 'hit' | 'crit' | 'kill'; hits: number; crits: number; kills: number; amount: number; weaponId: string };
+
+  // ── player：生命與護盾（M1-12）──────────────────────────
+  // HUD（M1-14）、音效（M1-13）、鏡頭與受擊回饋使用；唯讀狀態見 PlayerHealth.state。payload 物件重複使用。
+  /**
+   * 玩家受到傷害。amount 為這一筆的傷害量（blocked 時為原始傷害、實際未扣血），shieldDamage／healthDamage 為實際扣掉的量；
+   * dir 為傷害行進方向（攻擊者 → 玩家），sourcePos 為攻擊者位置（受擊方向指示用）；shieldBroken 表示這一筆把護盾打到 0。
+   */
+  'player:damaged': {
+    amount: number;
+    shieldDamage: number;
+    healthDamage: number;
+    shield: number;
+    health: number;
+    shieldBroken: boolean;
+    blocked: boolean;
+    dir: { x: number; y: number; z: number };
+    sourcePos: { x: number; y: number; z: number };
+    source: string;
+    weaponId: string;
+  };
+  /** 玩家死亡（開始淡出；deathFadeTime 後重生）。 */
+  'player:died': { source: string; weaponId: string; deaths: number };
+  /** 死亡後重生完成（已傳送到出生點、護盾與生命回滿）。 */
+  'player:revived': { deaths: number };
+  /** 護盾開始回充（受傷後 shieldRegenDelay 秒）或回滿。 */
+  'player:shield': { phase: 'recharge' | 'full'; shield: number };
+
+  // ── combat：靶標與敵方投射物（M1-12；M3 的敵人沿用）──────
+  /** 靶標或敵人被擊殺；kind：dummy（靜態假人）、mover（移動靶）、drone（訓練無人機）。point 為目標中心。 */
+  'target:killed': { id: string; kind: string; point: { x: number; y: number; z: number }; weaponId: string; isCrit: boolean };
+  /** 靶標重置（假人站起、無人機重生）。 */
+  'target:reset': { id: string; kind: string };
+  /** 敵方開火（無人機能量球；M3 的敵人沿用）：position 為發射點，dir 為單位方向。 */
+  'enemy:fire': { source: string; position: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; speed: number };
+  /** 敵方投射物結束：impact（打到世界）、hitPlayer（打到玩家）、expire（逾時）。 */
+  'enemy:projectile': {
+    phase: 'impact' | 'hitPlayer' | 'expire';
+    id: number;
+    source: string;
+    position: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
+  };
 
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */

@@ -2,7 +2,7 @@
 //
 // - Hitscan：從射擊起點（相機／眼睛）沿「視線＋散布」方向做穿透射線（Physics.raycastAll，世界＋敵人）。
 //   依距離由近到遠：碰到世界就停（不穿牆）；碰到 Hitbox 造成傷害（同一目標只算一次），穿過 damage.penetration 個目標後停。
-//   傷害 = base × 距離衰減 ×（弱點 critMult）× Hitbox 倍率 × perk 修正。
+//   傷害 = combat/Damage.ts 的 computeDamage（base × 距離衰減 ×（弱點 critMult）× Hitbox 倍率）× perk 修正。
 // - 投射物：物件池（滿了回收最舊的），每步以「這一步的位移線段」做 shape cast（球，半徑 radius；0 時為 raycast），
 //   速度再快也不會穿過薄牆。碰撞時：直擊目標受 base 傷害；範圍內的目標依距離衰減受 splashDamage（視線被世界擋住時不生效）；
 //   範圍內的玩家受到擊退（加到玩家速度，可以火箭跳），selfDamageMult > 0 時另受自傷。
@@ -11,9 +11,12 @@
 // 爆炸發 `weapon:explosion`，投射物生成／命中／逾時發 `weapon:projectile`。M1-11 的投射物外觀讀 ballistics.projectiles。
 import RAPIER from '@dimforge/rapier3d-compat';
 import {
+  computeDamage,
+  createDamageBreakdown,
   createDamageInfo,
-  falloffMultiplier,
   hitboxOf,
+  splashMultiplier,
+  type DamageCalcInput,
   type DamageInfo,
   type DamageKind,
   type Damageable,
@@ -114,6 +117,19 @@ export class Ballistics {
   private readonly physics: Physics;
   private readonly bus: EventBus<GameEvents> | undefined;
   private readonly info: DamageInfo = createDamageInfo();
+  private readonly breakdown = createDamageBreakdown();
+  private readonly calc: DamageCalcInput = {
+    base: 0,
+    distance: 0,
+    falloffStart: 0,
+    falloffEnd: 0,
+    minMult: 1,
+    critMult: 1,
+    zone: 'body',
+    zoneMultiplier: 1,
+    splash: null,
+  };
+  private readonly splashCalc = { radius: 0, minMult: 1 };
   private readonly hitscanResult: HitscanResult = {
     origin: v3(),
     dir: v3(),
@@ -226,12 +242,7 @@ export class Ballistics {
       const target = hitbox.target;
       if (!target.alive || this.hitTargets.has(target)) continue;
       this.hitTargets.add(target);
-      const crit = hitbox.zone === 'crit';
-      const amount =
-        def.damage.base *
-        falloffMultiplier(h.distance, def.damage.falloffStart, def.damage.falloffEnd, def.damage.minMult) *
-        (crit ? def.damage.critMult : 1) *
-        (hitbox.multiplier ?? 1);
+      const amount = this.directDamage(def, hitbox, h.distance);
       const info = this.deal(hitbox, amount, 'hitscan', h.point, h.normal, dir, h.distance, shot);
       const rec = this.targetSlot(res, res.targetCount++);
       rec.target = target;
@@ -388,12 +399,7 @@ export class Ballistics {
     this.emitProjectile('impact', p);
     const hitbox = hitboxOf(this.physics, handle);
     if (hitbox && hitbox.target.alive) {
-      const crit = hitbox.zone === 'crit';
-      const amount =
-        def.damage.base *
-        falloffMultiplier(p.traveled, def.damage.falloffStart, def.damage.falloffEnd, def.damage.minMult) *
-        (crit ? def.damage.critMult : 1) *
-        (hitbox.multiplier ?? 1);
+      const amount = this.directDamage(def, hitbox, p.traveled);
       this.deal(hitbox, amount, 'projectile', center, normal, dir, p.traveled, shot);
     }
     this.explode(center, normal, pd.splashRadius, pd, shot);
@@ -441,7 +447,6 @@ export class Ballistics {
         target.getCenter(tc);
         const d = Math.hypot(tc.x - c.x, tc.y - c.y, tc.z - c.z);
         if (!this.lineOfSight(c, tc, d)) continue;
-        const mult = falloffMultiplier(Math.min(d, radius), 0, radius, pd.splashMinMult);
         if (d > 1e-6) {
           dir.x = (tc.x - c.x) / d;
           dir.y = (tc.y - c.y) / d;
@@ -451,7 +456,7 @@ export class Ballistics {
         negDir.x = -dir.x;
         negDir.y = -dir.y;
         negDir.z = -dir.z;
-        this.deal(hb, pd.splashDamage * mult * (hb.multiplier ?? 1), 'splash', tc, negDir, dir, d, shot);
+        this.deal(hb, this.splashDamage(pd, hb, d, radius), 'splash', tc, negDir, dir, d, shot);
         count++;
       }
       targets.clear();
@@ -460,7 +465,7 @@ export class Ballistics {
       if (pc) {
         const d = Math.hypot(pc.x - c.x, pc.y - c.y, pc.z - c.z);
         if (d <= radius && this.lineOfSight(c, pc, d)) {
-          const mult = falloffMultiplier(d, 0, radius, pd.splashMinMult);
+          const mult = splashMultiplier(d, radius, pd.splashMinMult);
           if (pd.selfKnockback > 0) {
             const dv = this.tmpDir;
             if (d > 1e-6) {
@@ -557,6 +562,37 @@ export class Ballistics {
   }
 
   // ── 傷害 ───────────────────────────────────────────────
+
+  /** 直擊（hitscan／投射物）的傷害：computeDamage（基礎 → 距離衰減 → 弱點 → 部位倍率）。 */
+  private directDamage(def: Readonly<WeaponDef>, hitbox: Hitbox, distance: number): number {
+    const c = this.calc;
+    const d = def.damage;
+    c.base = d.base;
+    c.distance = distance;
+    c.falloffStart = d.falloffStart;
+    c.falloffEnd = d.falloffEnd;
+    c.minMult = d.minMult;
+    c.critMult = d.critMult;
+    c.zone = hitbox.zone;
+    c.zoneMultiplier = hitbox.multiplier ?? 1;
+    c.splash = null;
+    return computeDamage(c, this.breakdown).amount;
+  }
+
+  /** 範圍傷害：computeDamage 的範圍模式（半徑衰減、不算弱點）。 */
+  private splashDamage(pd: NonNullable<WeaponDef['projectile']>, hitbox: Hitbox, distance: number, radius: number): number {
+    const c = this.calc;
+    const sp = this.splashCalc;
+    sp.radius = radius;
+    sp.minMult = pd.splashMinMult;
+    c.base = pd.splashDamage;
+    c.distance = distance;
+    c.critMult = 1;
+    c.zone = hitbox.zone;
+    c.zoneMultiplier = hitbox.multiplier ?? 1;
+    c.splash = sp;
+    return computeDamage(c, this.breakdown).amount;
+  }
 
   /** 結算一筆傷害：perk 修正 → target.applyDamage → perk onHit → `combat:damage`。回傳重複使用的 DamageInfo。 */
   deal(

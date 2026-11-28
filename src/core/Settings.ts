@@ -48,6 +48,14 @@ export interface Settings {
   speedLines: boolean;
   /** 畫面色差脈衝（Dash、受擊；M1-09）。 */
   chromaticAberration: boolean;
+  /** 命中標記（M1-12）。 */
+  hitMarkers: boolean;
+  /** 浮動傷害數字（M1-12）。 */
+  damageNumbers: boolean;
+  /** 合併傷害數字：同一目標短時間內的傷害累加成一個數字（M1-12）。 */
+  damageNumberMerge: boolean;
+  /** 訓練場的訓練無人機（M1-12；進入無人機戰區才啟動）。 */
+  trainingDrones: boolean;
   /** 主音量 0–1（M1-13 使用）。 */
   masterVolume: number;
   /** 音效音量 0–1。 */
@@ -85,6 +93,10 @@ export const SETTINGS_SCHEMA = {
   screenShake: { type: 'number', default: 1, min: 0, max: 1, step: 0.05, label: '畫面震動強度' },
   speedLines: { type: 'boolean', default: true, label: '速度線' },
   chromaticAberration: { type: 'boolean', default: true, label: '畫面色差' },
+  hitMarkers: { type: 'boolean', default: true, label: '命中標記' },
+  damageNumbers: { type: 'boolean', default: true, label: '傷害數字' },
+  damageNumberMerge: { type: 'boolean', default: true, label: '合併傷害數字' },
+  trainingDrones: { type: 'boolean', default: true, label: '訓練無人機' },
   masterVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '主音量' },
   sfxVolume: { type: 'number', default: 1, min: 0, max: 1, step: 0.01, label: '音效音量' },
   uiVolume: { type: 'number', default: 0.8, min: 0, max: 1, step: 0.01, label: '介面音量' },
