@@ -99,6 +99,12 @@ export class InputSystem implements GameSystem {
   readonly bindings: Bindings;
   /** 已產生的 InputFrame 數。 */
   stepCount = 0;
+  /**
+   * 外部輸入來源（M1-15 錄影重播）：設定後每個固定步照常消耗按鍵邊緣（玩家按鍵不會漏進之後的遊玩），
+   * 再由來源覆寫 frame，並把視角設成 frame 的 yaw／pitch；滑鼠位移在 beginFrame 丟棄。
+   * 來源回傳 false 表示已結束（清除來源，這一步改用玩家的輸入）。
+   */
+  private frameSource: ((out: InputFrame) => boolean) | null = null;
 
   private game: Game | null = null;
   private readonly config: InputConfig;
@@ -149,13 +155,32 @@ export class InputSystem implements GameSystem {
 
   beginFrame(): void {
     this.syncModes();
-    if (this.playing && this.isLocked()) this.mouse.applyFrame(this.view, this.getSettings());
+    if (this.playing && this.isLocked() && !this.frameSource) this.mouse.applyFrame(this.view, this.getSettings());
     else this.mouse.discard();
   }
 
   fixedUpdate(): void {
     this.builder.build(this.frame, this.view.yaw, this.view.pitch);
+    const source = this.frameSource;
+    if (source) {
+      if (source(this.frame)) this.view.set(this.frame.yaw, this.frame.pitch);
+      else {
+        this.frameSource = null;
+        this.builder.build(this.frame, this.view.yaw, this.view.pitch);
+      }
+    }
     this.stepCount++;
+  }
+
+  /** 是否由外部來源（錄影重播）提供輸入。 */
+  get hasFrameSource(): boolean {
+    return this.frameSource !== null;
+  }
+
+  /** 設定或清除外部輸入來源（見 frameSource）。 */
+  setFrameSource(source: ((out: InputFrame) => boolean) | null): void {
+    this.frameSource = source;
+    if (source) this.mouse.discard();
   }
 
   dispose(): void {

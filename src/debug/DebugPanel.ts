@@ -281,6 +281,11 @@ export class DebugPanel implements GameSystem {
     };
   }
 
+  /** 物件被程式整批改寫後（例如套用調參預設組合，M1-15），更新面板上所有參數的顯示值。 */
+  refreshAll(): void {
+    for (const reg of this.registrations) for (const b of reg.built) b.refresh?.();
+  }
+
   /** 目前註冊的資料夾路徑（測試、除錯用）。 */
   get registeredFolders(): string[] {
     return this.registrations.map((r) => r.path.join('/'));

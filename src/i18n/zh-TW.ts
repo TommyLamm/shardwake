@@ -196,6 +196,8 @@ export const ZH_TW = {
   'help.tip.air': '空中再按跳為二段跳，之後按住為噴射；Dash 有 2 次充能。',
   'help.tip.grapple': '準星下方出現「可勾取」時按抓鉤，打到高塔、外牆或青色抓鉤點就會被拉過去。',
   'help.tip.range': '靶場在出生平台西側；無人機戰區在浮台群北側。',
+  'help.timeTrial': '跑酷計時賽：回到起點重來',
+  'help.tip.trial': '跑酷計時賽：穿過出生平台北側的綠色起點門開始計時，依序穿過青色的環（跑牆長廊 → Z 字牆板 → 20 m 塔頂 → 半管 → 浮台群）到金色終點；隨時按重來鍵回到起點。',
 
   // ── HUD ────────────────────────────────────────────────
   'hud.shield': '護盾',
@@ -221,6 +223,31 @@ export const ZH_TW = {
   'hud.msg.storageLost': '目前無法存檔：設定只保留到關閉頁面',
   'hud.msg.storageBack': '已恢復存檔',
   'hud.msg.pauseHint': '按 {key} 暫停',
+
+  // ── 計時賽（M1-15）─────────────────────────────────────
+  'menu.timeTrial': '跑酷計時賽',
+  'hud.trial.ready': '穿過起點門開始計時',
+  'hud.trial.reset': '回到計時賽起點（按 {key} 重來）',
+  'hud.trial.start': '計時開始',
+  'hud.trial.split': '{label}　{time}{delta}',
+  'hud.trial.finish': '完成　{time}{delta}',
+  'hud.trial.newBest': '新紀錄！{time}{delta}',
+  'hud.trial.replay': '（重播成績，不更新最佳）',
+  'hud.trial.storageFailed': '最佳成績無法存檔：只保留到關閉頁面',
+
+  // ── 錄製重播與示範（M1-15，開發用）──────────────────────
+  'hud.replay.recording': '● 錄製 {time}　{key} 停止・{replayKey} 重播',
+  'hud.replay.playing': '▶ 重播 {time} / {total}　時間差 {delta}',
+  'hud.replay.recStart': '開始錄製輸入（{key} 停止）',
+  'hud.replay.recStop': '錄影完成：{seconds} s（按 {key} 重播）',
+  'hud.replay.done': '重播結束：終點差 {error}・時間差 {delta}',
+  'hud.replay.stopped': '已停止重播',
+  'hud.replay.none': '沒有錄影：先按 {key} 錄製',
+  'hud.replay.cannot': '無法開始：{reason}',
+  'hud.replay.busy': '重播中不能錄製（按 {key} 停止重播）',
+  'hud.demo.running': '示範：滑鏟 → 跑牆 → 蹬牆跳 → 二段跳 → Dash → 抓鉤',
+  'hud.demo.done': '示範完成（終點差 {error}；按 {key} 再看一次）',
+  'hud.demo.failed': '示範失準：{reason}',
 } as const satisfies Record<string, string>;
 
 export type StringTable = { readonly [K in keyof typeof ZH_TW]: string };

@@ -84,6 +84,19 @@ export interface WeaponManagerOptions {
   camera?: ZoomTarget | null;
 }
 
+/** 錄影重播的起始狀態（M1-15；JSON 相容）。 */
+export interface WeaponReplayState {
+  /** 武器模擬時間（s）。 */
+  time: number;
+  /** 散布與後座亂數的狀態（Rng.getState）。 */
+  rng: number;
+  activeSlot: number;
+  lastSlot: number;
+  /** 各欄位的彈匣與備彈（空欄位為 null；備彈無限為 null）。 */
+  ammo: (number | null)[];
+  reserve: (number | null)[];
+}
+
 /** HUD／準星／音效讀取的唯讀狀態（每步更新）。 */
 export interface WeaponHudState {
   /** 目前手持的欄位 0..4（切槍中為正在收或掏的那一把）。 */
@@ -773,6 +786,70 @@ export class WeaponManager implements GameSystem {
     e.lunge = this.melee.lunge;
     e.damage = damage;
     this.options.bus?.emit('weapon:melee', e);
+  }
+
+  // ── 錄影重播（M1-15）──────────────────────────────────
+
+  /** 擷取錄影重播的起始狀態：模擬時間、亂數狀態、欄位與彈藥（備彈無限為 null）。 */
+  captureReplayState(): WeaponReplayState {
+    return {
+      time: this.time,
+      rng: this.rng.getState(),
+      activeSlot: this.swap.active ? this.swap.to : this.activeSlot,
+      lastSlot: this.lastSlot,
+      ammo: this.slots.map((w) => (w ? w.ammo : null)),
+      reserve: this.slots.map((w) => (w && Number.isFinite(w.reserve) ? w.reserve : null)),
+    };
+  }
+
+  /**
+   * 還原起始狀態：取消切槍、近戰、換彈與開鏡，清除後座與計時，清掉飛行中的投射物；結果只依 s 決定。
+   * 錄製開始（擷取後立即還原）與重播開始都呼叫，兩邊從相同狀態出發。
+   */
+  restoreReplayState(s: Readonly<WeaponReplayState>): void {
+    const t = s.time;
+    this.time = t;
+    this.stepEnd = t;
+    this.recoilTime = t;
+    this.rng.setState(s.rng);
+    this.slots.forEach((w, i) => {
+      if (!w) return;
+      const ammo = s.ammo[i];
+      const reserve = s.reserve[i];
+      w.resetForReplay(t, typeof ammo === 'number' ? ammo : w.def.ammo.mag, typeof reserve === 'number' ? reserve : Number.POSITIVE_INFINITY);
+    });
+    const valid = (slot: number): boolean => slot >= 0 && slot < this.slots.length && this.slots[slot] != null;
+    if (valid(s.activeSlot)) this.activeSlot = s.activeSlot;
+    this.lastSlot = valid(s.lastSlot) ? s.lastSlot : this.activeSlot;
+    const sw = this.swap;
+    sw.active = false;
+    sw.phase = 'out';
+    sw.from = sw.to = this.activeSlot;
+    sw.start = sw.outEnd = sw.inEnd = t;
+    const m = this.melee;
+    m.active = false;
+    m.resolved = true;
+    m.lunge = false;
+    m.target = null;
+    m.start = m.hitTime = m.end = t;
+    this.meleeCooldownUntil = Number.NEGATIVE_INFINITY;
+    this.pendingSlot = -1;
+    this.sprintReadyTime = Number.NEGATIVE_INFINITY;
+    this.swapDoneTime = Number.NEGATIVE_INFINITY;
+    this.meleeDoneTime = Number.NEGATIVE_INFINITY;
+    this.recoil.reset();
+    this.recoil.recoveryDelay = 0;
+    this.recoil.recoveryPerSec = 0;
+    this.recoil.lastWasFirst = false;
+    this.options.view.setOffset(0, 0);
+    this.adsTarget = 0;
+    this.ads = this.previousAds = this.renderAds = 0;
+    this.hasPrevView = false;
+    this.prevYaw = this.prevPitch = this.aimYaw = this.aimPitch = 0;
+    this.lowered = false;
+    this.currentFrame = null;
+    this.options.ballistics?.clear();
+    this.publish(this.options.getPlayer());
   }
 
   // ── 內部：狀態 ─────────────────────────────────────────

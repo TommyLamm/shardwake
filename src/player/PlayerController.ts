@@ -96,6 +96,34 @@ export interface PlayerSettings {
   autoSprint: boolean;
 }
 
+/**
+ * 錄影重播的起始狀態（M1-15；JSON 相容）。restoreSnapshot() 只依這份資料決定之後的模擬結果：
+ * 錄製開始時先擷取再還原（正規化），重播開始時還原同一份，兩邊從完全相同的狀態出發。
+ * 只保留「地面／空中」兩種狀態；跑牆、攀爬、Dash、抓鉤、滑鏟中擷取時正規化成空中（著地時為地面），保留速度。
+ */
+export interface PlayerSnapshot {
+  /** 腳底位置與速度。 */
+  pos: [number, number, number];
+  vel: [number, number, number];
+  state: 'ground' | 'air';
+  crouchAmount: number;
+  crouchTarget: boolean;
+  /** 累計模擬時間（同牆冷卻、蹬牆跳寬限以它計時）。 */
+  simTime: number;
+  /** 距上次滑鏟推進（s；從未推進為 null）。 */
+  slideBoostTimer: number | null;
+  airTime: number;
+  stepsOnGround: number;
+  doubleJumpsLeft: number;
+  dashCharges: number;
+  dashElapsed: number;
+  jetFuel: number;
+  /** 連續著地時間（噴射回充延遲）。 */
+  groundedTime: number;
+  grappleCooldown: number;
+  grappleCooldownTotal: number;
+}
+
 /** 重生點（腳底位置、yaw 弧度）。 */
 export interface RespawnTarget {
   pos: Vec3Like;
@@ -403,6 +431,83 @@ export class PlayerController implements GameSystem {
     this.state.previousEyeHeight = this.state.eyeHeight;
     this.rendered.copy(this.position);
     if (yaw !== undefined) this.options.setView?.(yaw, pitch);
+    this.placeObject(1);
+  }
+
+  /** 擷取錄影重播的起始狀態（M1-15）。 */
+  captureSnapshot(): PlayerSnapshot {
+    const a = this.abilities;
+    const id = this.machine.currentId;
+    const onGround = this.grounded && (id === MoveStateId.ground || id === MoveStateId.slide);
+    return {
+      pos: [this.position.x, this.position.y, this.position.z],
+      vel: [this.velocity.x, this.velocity.y, this.velocity.z],
+      state: onGround ? 'ground' : 'air',
+      crouchAmount: this.crouchAmount,
+      crouchTarget: this.crouchTarget,
+      simTime: this.simTime,
+      slideBoostTimer: Number.isFinite(this.slideBoostTimer) ? this.slideBoostTimer : null,
+      airTime: this.airTime,
+      stepsOnGround: this.stepsOnGround,
+      doubleJumpsLeft: a.doubleJumpsLeft,
+      dashCharges: a.dash.charges,
+      dashElapsed: a.dash.elapsed,
+      jetFuel: a.jet.fuel,
+      groundedTime: a.groundedTime,
+      grappleCooldown: a.grappleCooldown.remaining,
+      grappleCooldownTotal: a.grappleCooldown.total,
+    };
+  }
+
+  /**
+   * 還原起始狀態（M1-15）：結果只依 snapshot 與關卡幾何決定（不受目前狀態影響），錄製與重播因此逐步一致。
+   * 進行中的跑牆、攀爬、Dash、抓鉤會結束（鉤爪收回）；不改變視角（由呼叫端設定）。
+   */
+  restoreSnapshot(s: Readonly<PlayerSnapshot>): void {
+    // 兩次強制進入空中：第一次結束目前狀態（exit 可能改寫速度），第二次讓「上一個狀態」固定為空中。
+    this.machine.set(MoveStateId.air, true);
+    this.machine.set(MoveStateId.air, true);
+    this.position.set(s.pos[0], s.pos[1], s.pos[2]);
+    this.state.previousPosition.copy(this.position);
+    this.velocity.set(s.vel[0], s.vel[1], s.vel[2]);
+    this.pendingImpulse.x = this.pendingImpulse.y = this.pendingImpulse.z = 0;
+    this.gravityThisStep = 0;
+    this.footstepAccum = 0;
+    this.jumpBuffer.clear();
+    this.input.jumpHoldTime = 0;
+    this.jumpedThisStep = false;
+    this.wallJumpedThisStep = false;
+    this.coyoteAvailable = false;
+    this.headBlocked = false;
+    this.ensureBody();
+    this.crouchAmount = Math.min(1, Math.max(0, s.crouchAmount));
+    this.crouchTarget = s.crouchTarget;
+    this.applyPosture();
+    this.syncColliderToFeet();
+    this.clearWallState();
+    this.walls.log.clear();
+    this.resetAirAbilities('respawn');
+    const a = this.abilities;
+    a.doubleJumpsLeft = s.doubleJumpsLeft;
+    a.dash.charges = s.dashCharges;
+    a.dash.elapsed = s.dashElapsed;
+    a.jet.fuel = s.jetFuel;
+    a.groundedTime = s.groundedTime;
+    a.grappleCooldown.remaining = s.grappleCooldown;
+    a.grappleCooldown.total = s.grappleCooldownTotal;
+    a.grappleReleaseReason = null;
+    this.simTime = s.simTime;
+    this.slideBoostTimer = s.slideBoostTimer ?? Number.POSITIVE_INFINITY;
+    this.airTime = s.airTime;
+    this.controllerGrounded = s.state === 'ground';
+    this.probeGround();
+    if (s.state === 'ground' && this.grounded) this.machine.set(MoveStateId.ground);
+    this.stepsOnGround = s.stepsOnGround;
+    a.publish(false);
+    this.state.state = this.machine.currentId;
+    this.publishState();
+    this.state.previousEyeHeight = this.state.eyeHeight;
+    this.rendered.copy(this.position);
     this.placeObject(1);
   }
 

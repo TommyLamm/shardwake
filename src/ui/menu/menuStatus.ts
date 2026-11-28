@@ -55,9 +55,10 @@ export const HELP_CONTROLS: readonly { labelKey: StringKey; actions: readonly Ac
   { labelKey: 'help.reloadMelee', actions: ['reload', 'melee', 'interact'] },
   { labelKey: 'help.weapons', actions: ['weapon1', 'weapon5', 'weaponNext', 'weaponLast'] },
   { labelKey: 'help.pause', actions: ['pause'] },
+  { labelKey: 'help.timeTrial', actions: ['restartCourse'] },
 ];
 
-export const HELP_TIPS: readonly StringKey[] = ['help.tip.sprint', 'help.tip.wall', 'help.tip.air', 'help.tip.grapple', 'help.tip.range'];
+export const HELP_TIPS: readonly StringKey[] = ['help.tip.sprint', 'help.tip.wall', 'help.tip.air', 'help.tip.grapple', 'help.tip.range', 'help.tip.trial'];
 
 export interface ControlsLabeler {
   labelFor(action: Action, separator?: string): string;

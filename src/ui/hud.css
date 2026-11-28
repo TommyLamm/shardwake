@@ -512,3 +512,13 @@
   font-size: calc(12px * var(--s));
   color: var(--sw-hud-dim);
 }
+
+/* 錄製／重播狀態（M1-15，開發用）。 */
+.sw-replay-status {
+  padding: calc(3px * var(--s)) calc(10px * var(--s));
+  font-size: calc(12px * var(--s));
+  color: #e8fbff;
+  background: rgb(5 8 13 / 62%);
+  border: 1px solid rgb(57 230 255 / 35%);
+  white-space: nowrap;
+}

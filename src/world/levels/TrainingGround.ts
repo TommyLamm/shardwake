@@ -441,17 +441,18 @@ export const TRAINING_CHECKPOINTS: readonly Checkpoint[] = [
   { id: 'cp-platforms', pos: [26.5, 0, 46], yaw: 0 },
   { id: 'cp-arena', pos: [50, 0, 22], yaw: 0 },
   { id: 'cp-towers', pos: [50, 0, -38], yaw: 0 },
-  // 跑酷路線：出生 → 跑牆長廊 → Z 字牆板 → 坡頂 → 滑下 → 半管 → 高塔 → 浮台 → 終點。
+  // 跑酷路線（M1-15 定案；pos 為環的中心）：出生平台 → 跑牆長廊（南進北出）→ Z 字牆板越過深坑 → 沿北側往東 →
+  // 抓鉤上 20 m 高塔 → 跳下進半管北端 → 半管滑到南端 → 浮台群（起點台到最後一台）→ 攀爬牆前的終點。
+  // 原本的「坡頂 → 滑下」要先跑上 40 m 長坡（坡頂平台沒有其他上去的方法），改成半管段；yaw 只是重生面向，環的朝向依前後檢查點決定。
   ...(
     [
       ['start', [0, 1.5, 52], 0],
       ['wallrun-in', [-34, 2.5, 29], 0],
       ['wallrun-out', [-34, 2.5, -9], 0],
-      ['zigzag-out', [-34, 2.5, -73], 90],
-      ['slide-top', [SLIDE_SLOPE.x, SLIDE_SLOPE.rise + 1.5, -50], 180],
-      ['slide-bottom', [SLIDE_SLOPE.x, 1.5, -1], -90],
-      ['halfpipe-end', [9, 2, -44], -90],
-      ['tower-20', [32, TOWER_HEIGHTS[0] + 1.5, -50], 180],
+      ['zigzag-out', [-34, 2.5, -73], -90],
+      ['tower-20', [30.5, TOWER_HEIGHTS[0] + 2, -50], 90],
+      ['halfpipe-in', [9, 2, -44], 180],
+      ['halfpipe-out', [9, 2, -6], 180],
       ['platform-start', [26.5, PLATFORM_TOP + 1.5, 33], -90],
       ['platform-end', [74.5, PLATFORM_TOP + 1.5, 33], 180],
       ['finish', [50, 1.5, 56], 0],
@@ -468,6 +469,25 @@ export const TRAINING_CHECKPOINTS: readonly Checkpoint[] = [
     }),
   ),
 ];
+
+/** 跑酷計時賽（M1-15）：路線 id、名稱、各檢查點顯示名稱與重來位置（出生平台上、起點門南方 8 m，面向北）。 */
+export const PARKOUR_COURSE = {
+  id: 'parkour',
+  name: '跑酷計時賽',
+  restart: { pos: [0, 0.3, 60] as Vec3Tuple, yaw: 0 },
+  labels: {
+    'parkour-start': '起點',
+    'parkour-wallrun-in': '跑牆長廊',
+    'parkour-wallrun-out': '長廊出口',
+    'parkour-zigzag-out': 'Z 字牆板',
+    'parkour-tower-20': '20 m 塔頂',
+    'parkour-halfpipe-in': '半管入口',
+    'parkour-halfpipe-out': '半管出口',
+    'parkour-platform-start': '浮台起點',
+    'parkour-platform-end': '浮台終點',
+    'parkour-finish': '終點',
+  } as Readonly<Record<string, string>>,
+} as const;
 
 export function createTrainingGroundData(): LevelData {
   return {

@@ -391,6 +391,31 @@ export class Weapon {
     this.bloomTime = time;
   }
 
+  /**
+   * 錄影重播的起點（M1-15）：取消換彈並清除所有計時狀態（包含 reset() 不清的上一發時間與連發），
+   * 彈藥設為指定值；結果只依參數決定。
+   */
+  resetForReplay(time: number, ammo: number, reserve: number): void {
+    if (this.reload.active) this.cancelReload(time, 'other');
+    this.reload.active = false;
+    this.reload.refilled = false;
+    this.reload.shellInserted = false;
+    this.reload.shellsLoaded = 0;
+    this.nextShotTime = Number.NEGATIVE_INFINITY;
+    this.lastShotTime = Number.NEGATIVE_INFINITY;
+    this.bufferUntil = Number.NEGATIVE_INFINITY;
+    this.burstLeft = 0;
+    this.burstStart = 0;
+    this.bloom = 0;
+    this.bloomTime = time;
+    this.shotsFired = 0;
+    this.dryFiredForPress = false;
+    this.lastStepEnd = time;
+    this.ammo = ammo;
+    this.reserve = reserve;
+    this.clampAmmo();
+  }
+
   /** perk hook 用的唯讀狀態。 */
   perkContext(time: number): PerkContext {
     this.perkCtx.ammo = this.ammo;

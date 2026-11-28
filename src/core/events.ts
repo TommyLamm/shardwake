@@ -3,6 +3,7 @@
 // 熱迴圈內每步都會發的事件，payload 應重複使用同一個物件，避免配置記憶體。
 import type { DamageInfo } from '@/combat/Damage';
 import type { Settings, SettingsKey } from '@/core/Settings';
+import type { TimeTrialResult } from '@/tools/TimeTrial';
 
 /** 遊戲模式：boot → title → playing ⇄ paused（paused／playing 可回 title）。 */
 export type GameMode = 'boot' | 'title' | 'playing' | 'paused';
@@ -258,6 +259,16 @@ export interface GameEvents {
     position: { x: number; y: number; z: number };
     normal: { x: number; y: number; z: number };
   };
+
+  // ── tools：計時賽（M1-15；M5-05 排行榜接 course:finish）────
+  /** 進入起點門、開始計時。 */
+  'course:start': { courseId: string };
+  /** 通過中間檢查點：index 為第幾個（1 起算），time 為累計時間，delta 為與最佳的差（沒有最佳時為 null）。 */
+  'course:split': { courseId: string; index: number; gateId: string; time: number; delta: number | null };
+  /** 完成：成績格式見 tools/TimeTrial.ts 的 TimeTrialResult（replay、standard 供排行榜判斷是否收錄）。 */
+  'course:finish': TimeTrialResult;
+  /** 重來（restartCourse，預設 T）：玩家回到路線起點、計時歸零。 */
+  'course:reset': { courseId: string };
 
   // ── debug ──────────────────────────────────────────────
   /** 調參面板開啟或關閉。 */

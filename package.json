@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "check:dist": "node scripts/check-dist.mjs",
     "sim": "node scripts/platform-sim.mjs",
-    "cover": "node scripts/make-cover.mjs"
+    "cover": "node scripts/make-cover.mjs",
+    "demo:record": "node scripts/record-demo.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

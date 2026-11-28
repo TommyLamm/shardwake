@@ -216,6 +216,23 @@ export class TargetManager implements GameSystem {
     this.bolts.clear();
   }
 
+  /** 錄影重播的起始狀態（M1-15）：靶標時間與亂數狀態。 */
+  captureReplayState(): { time: number; rng: number } {
+    return { time: this.time, rng: this.rng.getState() };
+  }
+
+  /**
+   * 還原起始狀態（M1-15）：已建立的靶標全部重建（移動靶與無人機回到初始位置、亂數由固定種子重來）、
+   * 清掉能量球；錄製與重播開始時都呼叫，讓會擋住玩家或開火的靶標從相同狀態出發。
+   */
+  restoreReplayState(s: Readonly<{ time: number; rng: number }>): void {
+    if (this.built) this.build();
+    this.bolts.clear();
+    this.engaged = false;
+    this.time = s.time;
+    this.rng.setState(s.rng);
+  }
+
   /** 清掉所有飛行中的能量球（玩家重生）。 */
   clearBolts(): void {
     this.bolts.clear();

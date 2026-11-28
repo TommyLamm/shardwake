@@ -19,6 +19,8 @@ export interface MenuActions {
   restartTraining(): void;
   /** 返回標題（下次開始為新的一局）。 */
   toTitle(): void;
+  /** 跑酷計時賽：回到起點待命，然後繼續（M1-15；沒有路線時不顯示按鈕）。 */
+  startTimeTrial?(): void;
 }
 
 export const SCREEN = {
@@ -128,6 +130,7 @@ export class PauseScreen implements MenuScreen {
           h('hr', { class: 'sw-sep' }),
           button(t('menu.resetPosition'), () => a.resetPosition(), { sound: 'none' }),
           button(t('menu.restartTraining'), () => a.restartTraining(), { sound: 'none' }),
+          a.startTimeTrial ? button(t('menu.timeTrial'), () => a.startTimeTrial?.(), { sound: 'none' }) : null,
           button(t('menu.toTitle'), () => a.toTitle(), { variant: 'danger', sound: 'ui.back' }),
           fs.el,
         ]),

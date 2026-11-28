@@ -150,9 +150,12 @@ export const CAMERA_CONFIG: CameraConfig = {
   shakeFrequency: 18,
 };
 
+/** 預設值的複本（重設、測試、M1-15「標準」預設組合用；不受調參面板修改影響）。 */
 export function defaultCameraConfig(): CameraConfig {
-  return { ...CAMERA_CONFIG };
+  return { ...CAMERA_CONFIG_DEFAULTS };
 }
+
+const CAMERA_CONFIG_DEFAULTS: Readonly<CameraConfig> = Object.freeze({ ...CAMERA_CONFIG });
 
 /** 調參面板「鏡頭」的分組。 */
 export const CAMERA_PANEL: readonly { folder: string; schema: ConfigSchema<CameraConfig> }[] = [

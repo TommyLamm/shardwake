@@ -119,6 +119,27 @@ export class GameStorage {
     return false;
   }
 
+  /**
+   * 寫入大型、可捨棄的資料（M1-15 的錄影片段）：後端寫入失敗（例如容量不足）時不退回記憶體、
+   * 不改變持久狀態（其他資料照常存檔），回傳 ok = false 與原因。本來就沒有後端時存在記憶體（ok、不持久）。
+   */
+  trySetString(key: string, value: string): { ok: boolean; persistent: boolean; error?: string } {
+    assertVersionedKey(key);
+    if (!this.backend) {
+      this.memory.set(key, value);
+      this.removed.delete(key);
+      return { ok: true, persistent: false };
+    }
+    try {
+      this.backend.setItem(this.prefix + key, value);
+      this.memory.delete(key);
+      this.removed.delete(key);
+      return { ok: true, persistent: this.persistent };
+    } catch (err) {
+      return { ok: false, persistent: this.persistent, error: describe(err) };
+    }
+  }
+
   /** 讀取 JSON；不存在或解析失敗時回傳 fallback。 */
   getJSON<T>(key: string, fallback: T): T;
   getJSON<T>(key: string): T | null;

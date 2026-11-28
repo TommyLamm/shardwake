@@ -5,7 +5,8 @@
 // 武器表現（M1-11：Viewmodel 場景與第二個 RenderPass、程序槍模、槍口閃光、曳光、命中火花、彈孔、電漿球與爆炸、準星、狙擊鏡遮罩）、
 // 靶標與戰鬥回饋（M1-12：PlayerHealth、TargetManager（假人、移動靶、訓練無人機、DPS 計看板）、命中標記、傷害數字、受擊畫面回饋）、
 // 程序合成音效（M1-13：AudioEngine（玩家第一次操作才建立 AudioContext）、AudioEventBinder（事件 → 音效）、載入時預渲染）、
-// HUD、選單與設定（M1-14：ui/Hud 與 ui/hud/ 的元件、ui/menu/ 的標題／暫停／設定／按鍵配置／操作說明、i18n 字串表）。
+// HUD、選單與設定（M1-14：ui/Hud 與 ui/hud/ 的元件、ui/menu/ 的標題／暫停／設定／按鍵配置／操作說明、i18n 字串表）、
+// 調校工具（M1-15：tools/ 的預設組合、輸入錄製與確定性重播、鬼影、跑酷計時賽、#demo 示範，調參面板「工具」）。
 // renderer.setAnimationLoop 每畫面呼叫 Game.frame()：beginFrame（滑鼠視角）→ 固定步長模擬 → update → render（PostFX）。
 // 滑鼠鎖定流程見 input/LockFlow.ts：選單的「開始／繼續」按鈕與點擊背景在點擊事件中請求鎖定。
 // 鏡頭由 CameraRig 放在玩家插值後的眼睛位置並疊加鏡頭效果（M1-08）；自由飛行相機保留為除錯用的穿牆飛行。
@@ -77,6 +78,8 @@ import { menuStatus, type MenuStatusState } from '@/ui/menu/menuStatus';
 import { HelpScreen, PauseScreen, SCREEN, TitleScreen, type MenuActions } from '@/ui/menu/screens';
 import { SettingsScreen } from '@/ui/menu/SettingsScreen';
 import { t } from '@/i18n';
+import { setupTuningTools } from '@/tools/TuningTools';
+import demoClip from '@/debug/demo-clip.json';
 import { version as GAME_VERSION } from '../package.json';
 import { DataLevel, LevelManager } from '@/world/Level';
 import { SceneLighting } from '@/world/Lighting';
@@ -215,11 +218,14 @@ async function boot(): Promise<void> {
   const feet = new THREE.Vector3();
   // 武器系統在玩家之後建立；玩家的開鏡減速讀它（M1-10）。
   let weaponsRef: WeaponManager | null = null;
+  // 影響模擬的設定：錄影重播期間改用錄影記下的值（M1-15；目前只有自動衝刺），其餘時間是玩家設定。
+  let simSettingsOverride: Settings | null = null;
+  const simSettings = (): Readonly<Settings> => simSettingsOverride ?? settings.value;
   const player = new PlayerController({
     physics,
     bus,
     getFrame: () => input.frame,
-    getSettings: () => settings.value,
+    getSettings: simSettings,
     setView: (yaw, pitch) => input.view.set(yaw, pitch),
     checkRespawn: (p) => currentDataLevel()?.checkRespawn(p) ?? null,
     // 抓鉤脫鉤／落空後關掉「切換模式」的狀態；準星輔助用每畫面的視角。
@@ -336,7 +342,7 @@ async function boot(): Promise<void> {
     getPlayer: () => (player.enabled && health.alive ? player : null),
     ballistics,
     bus,
-    getSettings: () => settings.value,
+    getSettings: simSettings,
     setToggle: (action, on) => input.builder.setToggle(action, on),
     mouse: input.mouse,
     camera: cameraRig,
@@ -862,7 +868,43 @@ async function boot(): Promise<void> {
     weaponFx.clear();
     damageNumbers.clear();
     hud.reset();
+    tools.trial.reset();
   };
+  // ── 調校工具（M1-15）─────────────────────────────────
+  const tools = setupTuningTools({
+    game,
+    bus,
+    storage,
+    panel,
+    input,
+    scene,
+    container: app,
+    player,
+    weapons,
+    weaponPanel,
+    health,
+    targets,
+    ballistics,
+    getLevel: currentDataLevel,
+    isActive: () => game.mode === 'playing' && player.enabled,
+    getSettings: () => settings.value,
+    setSimSettings: (s) => {
+      simSettingsOverride = s ? { ...settings.value, ...s } : null;
+    },
+    resetPlayerTo,
+    teleport: teleportActive,
+    clearEffects: () => {
+      damageNumbers.clear();
+      damageOverlay.clear();
+    },
+    hud,
+    timer: hudTimer.state,
+    messages: hudMessages,
+    keyLabel: (action) => bindings.labelFor(action),
+    ...(hasHashFlag(location.hash, 'demo') ? { demoClip } : {}),
+    gameVersion: GAME_VERSION,
+    makeVector: (x, y, z) => new THREE.Vector3(x, y, z),
+  });
   /** 回到最近的檢查點（卡住時用）。 */
   const resetPosition = (): void => {
     const lvl = currentDataLevel();
@@ -885,6 +927,10 @@ async function boot(): Promise<void> {
     },
     toTitle: () => {
       game.setMode('title');
+    },
+    startTimeTrial: () => {
+      tools.restartCourse();
+      void lockFlow.click();
     },
   };
   const fullscreen = new FullscreenControl({ embedded: lifecycle.embedded });
@@ -962,6 +1008,7 @@ async function boot(): Promise<void> {
         ...{ health, targets, hitConfirm, hitMarker, damageNumbers, damageOverlay, combatPanel, feedback },
         ...{ audio, audioEvents, audioTools: { renderStress, buildStressScenario } },
         ...{ hud, hudTimer, hudMessages, menu, menuActions, settingsScreen, controlsScreen, fullscreen },
+        ...{ tools },
       };
       (globalThis as Record<string, unknown>).__shardwake = handles;
     }
@@ -985,6 +1032,15 @@ async function boot(): Promise<void> {
   });
 
   document.documentElement.dataset.swBoot = 'ready';
+
+  // #demo：載入後直接進入遊玩，用標準參數重播內建錄影（不需要滑鼠鎖定；自動化驗證與截圖用）。
+  if (tools.demo) {
+    document.documentElement.dataset.swDemo = 'pending';
+    window.setTimeout(() => {
+      if (game.mode === 'title') game.start();
+      if (!tools.startDemo()) console.warn('[shardwake] 示範無法開始');
+    }, tools.demo.config.startDelay * 1000);
+  }
 }
 
 boot().catch((err: unknown) => {
